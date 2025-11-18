@@ -1,0 +1,46 @@
+name: "Setup Zig"
+description: "Download Zig archive for the current OS/arch and add it to PATH"
+inputs:
+  version:
+    description: "Zig version"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Zig (Linux)
+      if: ${{ runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        ver="${{ inputs.version }}"
+        arch_name="$(uname -m)"
+        os_tag=linux
+
+        case "$arch_name" in
+          x86_64) arch_tag=x86_64 ;;
+          aarch64|arm64) arch_tag=aarch64 ;;
+          *) echo "Unsupported arch: $arch_name" >&2; exit 1 ;;
+        esac
+
+        base="zig-${arch_tag}-${os_tag}-${ver}"
+        url="https://ziglang.org/download/${ver}/${base}.tar.xz"
+        work="${RUNNER_TEMP}/zig"
+        mkdir -p "$work"
+
+        echo "Downloading $url"
+        curl -fsSL "$url" -o "$work/zig.tar.xz"
+
+        # Extract archive
+        tar -C "$work" -xf "$work/zig.tar.xz"
+
+        # Find extracted directory
+        topdir="$(find "$work" -maxdepth 1 -type d -name 'zig-*' | head -n 1)"
+        if [ -z "$topdir" ]; then
+          echo "Could not locate extracted Zig directory" >&2
+          ls -la "$work" >&2 || true
+          exit 1
+        fi
+
+        echo "$topdir" >> "$GITHUB_PATH"
+        "$topdir/zig" version

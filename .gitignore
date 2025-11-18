@@ -1,0 +1,39 @@
+# Zig build artifacts
+.zig-cache/
+zig-cache/
+build/
+zig-build/
+
+# Build outputs
+/zig-out/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# OS specific
+Thumbs.db
+.project
+.cproject
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Dependencies (if using zig package manager)
+deps/
+vendor/
+
+# Test coverage
+coverage/
+*.lcov

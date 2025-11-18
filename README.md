@@ -1,0 +1,329 @@
+# zjson
+
+A lightweight, type-safe JSON library for Zig with both compile-time serialization and runtime parsing.
+
+[![Zig](https://img.shields.io/badge/zig-0.15.2-orange)](https://ziglang.org)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+## Requirements
+
+- Zig 0.15 or newer is required. The library is tested against Zig 0.15.x and later; builds may fail on older compiler versions.
+
+## Features
+
+- **🚀 Compile-time JSON serialization** - Convert Zig structs to JSON at compile time
+- **⚡ Runtime JSON parsing** - Parse JSON strings into a generic `Value` type
+- **🎯 Type-safe** - Full type information preserved during serialization
+- **📦 Allocator-aware** - Flexible memory management for runtime parsing
+- **✨ Proper escaping** - Complete JSON escape sequence support
+- **🔄 Minimal allocations** - Zero-copy parsing where possible
+
+## Installation
+
+Add to your `build.zig.zon`:
+
+```zig
+.{
+    .name = "your-project",
+    .version = "0.0.1",
+    .dependencies = .{
+        .zjson = .{
+            .url = "https://github.com/dungngo4520/zjson/archive/refs/heads/main.tar.gz",
+        },
+    },
+}
+```
+
+Then in your `build.zig`:
+
+```zig
+exe.root_module.addImport("zjson", b.dependency("zjson").module("zjson"));
+```
+
+## Quick Start
+
+### Compile-time Serialization
+
+```zig
+const std = @import("std");
+const zjson = @import("zjson");
+
+pub fn main() void {
+    const Person = struct {
+        name: []const u8,
+        age: u8,
+    };
+
+    const person = Person{ .name = "Alice", .age = 30 };
+    const json = zjson.stringify(person);
+    std.debug.print("{s}\n", .{json});  // {"name":"Alice","age":30}
+}
+```
+
+### Runtime Parsing
+
+```zig
+const std = @import("std");
+const zjson = @import("zjson");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const json = "{\"name\":\"Bob\",\"age\":25}";
+    const value = try zjson.parse(json, allocator);
+    defer zjson.freeValue(value, allocator);
+
+    if (value == .Object) {
+        for (value.Object) |pair| {
+            std.debug.print("{s}\n", .{pair.key});
+        }
+    }
+}
+```
+
+## API Reference
+
+### Compile-time: `stringify(value)`
+
+```zig
+pub fn stringify(comptime value: anytype) []const u8
+```
+
+Converts a Zig value to a JSON string at compile-time. Supported types:
+
+- Primitives: `bool`, integers, floats, `void` (null)
+- Strings with automatic escaping
+- Enums (as tag name)
+- Optional types
+- Arrays and slices
+- Structs
+- Nested combinations
+
+### Runtime: `parse(input, allocator)`
+
+```zig
+pub fn parse(input: []const u8, allocator: std.mem.Allocator) Error!Value
+```
+
+Parses a JSON string into a `Value` union type. Returns an error if the JSON is invalid.
+
+### Memory: `freeValue(value, allocator)`
+
+```zig
+pub fn freeValue(value: Value, allocator: std.mem.Allocator) void
+```
+
+Recursively frees all memory allocated by `parse()`. Must be called exactly once per parsed value.
+
+### Value Type
+
+```zig
+pub const Value = union(enum) {
+    Null,
+    Bool: bool,
+    Number: []const u8,        // Kept as string for precision
+    String: []const u8,
+    Array: []const Value,
+    Object: []const Pair,
+};
+
+pub const Pair = struct {
+    key: []const u8,
+    value: Value,
+};
+```
+
+## Supported Types
+
+### Stringify (Compile-time)
+
+| Zig Type | Example | JSON Output |
+|----------|---------|-------------|
+| `bool` | `true` | `true` |
+| `u8..u64, i8..i64` | `42` | `42` |
+| `f16, f32, f64` | `3.14` | `3.14` |
+| `[]const u8` | `"hello"` | `"hello"` |
+| `enum` | `Color.red` | `"red"` |
+| `[]T` | `&[_]i32{1,2,3}` | `[1,2,3]` |
+| `struct` | `Person{...}` | `{...}` |
+| `?T` | `null` / `value` | `null` / value |
+
+### Parse (Runtime)
+
+Returns a `Value` union with the following variants:
+
+- `.Null` - JSON `null`
+- `.Bool: bool` - JSON `true` / `false`
+- `.Number: []const u8` - JSON number (as string)
+- `.String: []const u8` - JSON string
+- `.Array: []const Value` - JSON array
+- `.Object: []const Pair` - JSON object
+
+## Implementation Features
+
+### String Escaping
+
+All JSON escape sequences are properly handled:
+
+```zig
+// Stringify
+zjson.stringify("hello\nworld");        // "hello\\nworld"
+zjson.stringify("quote: \"test\"");     // "quote: \\\"test\\\""
+zjson.stringify("path\\to\\file");      // "path\\\\to\\\\file"
+
+// Parse
+try zjson.parse("\"hello\\nworld\"", a);  // Result: "hello\nworld"
+```
+
+Supported escapes: `\"`, `\\`, `\/`, `\n`, `\r`, `\t`, `\b`, `\f`, `\uXXXX`
+
+### Optional Field Omission (omitempty)
+
+Optional struct fields with `null` values are automatically omitted during serialization:
+
+```zig
+const User = struct {
+    name: []const u8,
+    email: ?[]const u8 = null,
+};
+
+const user = User{ .name = "Charlie", .email = null };
+const json = zjson.stringify(user);
+// Result: {"name":"Charlie"}
+// Note: email field is omitted because it's null
+```
+
+### Error Handling
+
+```zig
+pub const Error = error{
+    UnexpectedEnd,
+    InvalidSyntax,
+    InvalidEscape,
+    InvalidNumber,
+    ExpectedColon,
+    ExpectedCommaOrEnd,
+    ExpectedValue,
+    TrailingCharacters,
+    OutOfMemory,
+};
+```
+
+Example:
+
+```zig
+const value = zjson.parse(json, allocator) catch |err| {
+    std.debug.print("Parse failed: {}\n", .{err});
+    return;
+};
+```
+
+## Roadmap
+
+- [x] Compile-time struct → JSON serialization
+- [x] Runtime JSON → generic value parsing
+- [x] Enum support
+- [x] omitempty for optional fields
+- [ ] Deserialize JSON → struct (typed deserialization)
+- [ ] Custom field names / field renaming
+- [ ] Better error messages with line/column info
+- [ ] Streaming parser/encoder
+- [ ] JSON schema validation
+
+## Testing
+
+Run the test suite:
+
+```bash
+zig build test
+```
+
+Tests are organized by category:
+
+- `stringify_test.zig` - Compile-time serialization tests
+- `parse_test.zig` - Runtime parsing tests
+- `string_test.zig` - String escaping tests
+
+## Performance Characteristics
+
+- **Stringify**: Compile-time evaluation - zero runtime overhead
+- **Parse**: Single-pass parser with O(n) complexity
+- **Numbers**: Stored as strings to preserve arbitrary precision
+- **Memory**: Allocator-based, caller controls cleanup
+
+## Building Examples
+
+```bash
+zig build examples
+```
+
+## Project Status
+
+**Early-stage**: APIs are evolving. Contributions welcome!
+
+## Contributing
+
+Contributions are encouraged! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass: `zig build test`
+5. Submit a Pull Request
+
+### Development Guidelines
+
+- Follow existing code style
+- Add tests for all new features
+- Update README for API changes
+- Test with `zig build test` before submitting
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Built for [Zig](https://ziglang.org) 0.15.2+
+- Inspired by fast, minimal JSON parsers with compile-time capabilities
+
+---
+
+**Latest Release**: 0.1.0 | **Zig Version**: 0.15.2+
+
+**For `parse`:**
+
+- Returns a `Value` union type that can be:
+  - `.Null` - JSON null
+  - `.Bool: bool` - JSON boolean
+  - `.Number: []const u8` - JSON number (kept as string for precision)
+  - `.String: []const u8` - JSON string
+  - `.Array: []const Value` - JSON array
+  - `.Object: []const Pair` - JSON object (array of key-value pairs)
+
+### omitempty
+
+Optional struct fields with `null` values are automatically omitted in `stringify`:
+
+```zig
+const User = struct {
+    name: []const u8,
+    email: ?[]const u8 = null,
+};
+
+const user = User{ .name = "Bob", .email = null };
+const json = zjson.stringify(user);
+// Result: {"name":"Bob"} (email omitted)
+```
+
+### Memory Management
+
+The `parse()` function allocates all JSON data with the provided allocator. Use `freeValue()` to recursively free all allocated memory:
+
+```zig
+const value = try zjson.parse(json_input, allocator);
+defer zjson.freeValue(value, allocator);
+// Use value...
+```
