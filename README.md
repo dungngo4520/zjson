@@ -20,7 +20,7 @@ A lightweight, type-safe JSON library for Zig with both compile-time serializati
 
 ## Installation
 
-Add to your `build.zig.zon`:
+Add to your `build.zig.zon`. Pin to a release tag for reproducible builds:
 
 ```zig
 .{
@@ -28,7 +28,7 @@ Add to your `build.zig.zon`:
     .version = "0.0.1",
     .dependencies = .{
         .zjson = .{
-            .url = "https://github.com/dungngo4520/zjson/archive/refs/heads/main.tar.gz",
+            .url = "https://github.com/dungngo4520/zjson/archive/refs/tags/v0.1.0.tar.gz",
         },
     },
 }
