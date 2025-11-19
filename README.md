@@ -1,26 +1,23 @@
 # zjson
 
-A lightweight, type-safe JSON library for Zig with both compile-time serialization and runtime parsing.
-
-[![Zig](https://img.shields.io/badge/zig-0.15.2-orange)](https://ziglang.org)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+A lightweight, type-safe JSON library for Zig with compile-time serialization and runtime parsing.
 
 ## Requirements
 
-- Zig 0.15 or newer is required. The library is tested against Zig 0.15.x and later; builds may fail on older compiler versions.
+Zig 0.15 or newer.
 
 ## Features
 
-- **🚀 Compile-time JSON serialization** - Convert Zig structs to JSON at compile time
-- **⚡ Runtime JSON parsing** - Parse JSON strings into a generic `Value` type
-- **🎯 Type-safe** - Full type information preserved during serialization
-- **📦 Allocator-aware** - Flexible memory management for runtime parsing
-- **✨ Proper escaping** - Complete JSON escape sequence support
-- **🔄 Minimal allocations** - Zero-copy parsing where possible
+- Compile-time JSON serialization from Zig structs
+- Runtime JSON parsing into a generic Value type
+- Type-safe with full type information preserved
+- Allocator-aware for flexible memory management
+- Complete JSON escape sequence support
+- Zero-copy parsing where possible
 
 ## Installation
 
-Add to your `build.zig.zon`. Pin to a release tag for reproducible builds:
+Add to your build.zig.zon:
 
 ```zig
 .{
@@ -34,7 +31,7 @@ Add to your `build.zig.zon`. Pin to a release tag for reproducible builds:
 }
 ```
 
-Then in your `build.zig`:
+Then in your build.zig:
 
 ```zig
 exe.root_module.addImport("zjson", b.dependency("zjson").module("zjson"));
@@ -85,7 +82,7 @@ pub fn main() !void {
 
 ## API Reference
 
-### Compile-time: `stringify(value)`
+### stringify(value)
 
 ```zig
 pub fn stringify(comptime value: anytype) []const u8
@@ -93,7 +90,7 @@ pub fn stringify(comptime value: anytype) []const u8
 
 Converts a Zig value to a JSON string at compile-time. Supported types:
 
-- Primitives: `bool`, integers, floats, `void` (null)
+- Primitives: bool, integers, floats, void (null)
 - Strings with automatic escaping
 - Enums (as tag name)
 - Optional types
@@ -101,21 +98,21 @@ Converts a Zig value to a JSON string at compile-time. Supported types:
 - Structs
 - Nested combinations
 
-### Runtime: `parse(input, allocator)`
+### parse(input, allocator)
 
 ```zig
 pub fn parse(input: []const u8, allocator: std.mem.Allocator) Error!Value
 ```
 
-Parses a JSON string into a `Value` union type. Returns an error if the JSON is invalid.
+Parses a JSON string into a Value union type. Returns an error if the JSON is invalid.
 
-### Memory: `freeValue(value, allocator)`
+### freeValue(value, allocator)
 
 ```zig
 pub fn freeValue(value: Value, allocator: std.mem.Allocator) void
 ```
 
-Recursively frees all memory allocated by `parse()`. Must be called exactly once per parsed value.
+Recursively frees all memory allocated by parse(). Must be called exactly once per parsed value.
 
 ### Value Type
 
@@ -123,7 +120,7 @@ Recursively frees all memory allocated by `parse()`. Must be called exactly once
 pub const Value = union(enum) {
     Null,
     Bool: bool,
-    Number: []const u8,        // Kept as string for precision
+    Number: []const u8,
     String: []const u8,
     Array: []const Value,
     Object: []const Pair,
@@ -141,25 +138,25 @@ pub const Pair = struct {
 
 | Zig Type | Example | JSON Output |
 |----------|---------|-------------|
-| `bool` | `true` | `true` |
-| `u8..u64, i8..i64` | `42` | `42` |
-| `f16, f32, f64` | `3.14` | `3.14` |
-| `[]const u8` | `"hello"` | `"hello"` |
-| `enum` | `Color.red` | `"red"` |
-| `[]T` | `&[_]i32{1,2,3}` | `[1,2,3]` |
-| `struct` | `Person{...}` | `{...}` |
-| `?T` | `null` / `value` | `null` / value |
+| bool | true | true |
+| u8..u64, i8..i64 | 42 | 42 |
+| f16, f32, f64 | 3.14 | 3.14 |
+| []const u8 | "hello" | "hello" |
+| enum | Color.red | "red" |
+| []T | &[_]i32{1,2,3} | [1,2,3] |
+| struct | Person{...} | {...} |
+| ?T | null / value | null / value |
 
 ### Parse (Runtime)
 
-Returns a `Value` union with the following variants:
+Returns a Value union with the following variants:
 
-- `.Null` - JSON `null`
-- `.Bool: bool` - JSON `true` / `false`
-- `.Number: []const u8` - JSON number (as string)
-- `.String: []const u8` - JSON string
-- `.Array: []const Value` - JSON array
-- `.Object: []const Pair` - JSON object
+- Null - JSON null
+- Bool: bool - JSON true / false
+- Number: []const u8 - JSON number (as string)
+- String: []const u8 - JSON string
+- Array: []const Value - JSON array
+- Object: []const Pair - JSON object
 
 ## Implementation Features
 
@@ -177,11 +174,11 @@ zjson.stringify("path\\to\\file");      // "path\\\\to\\\\file"
 try zjson.parse("\"hello\\nworld\"", a);  // Result: "hello\nworld"
 ```
 
-Supported escapes: `\"`, `\\`, `\/`, `\n`, `\r`, `\t`, `\b`, `\f`, `\uXXXX`
+Supported escapes: \", \\, \/, \n, \r, \t, \b, \f, \uXXXX
 
-### Optional Field Omission (omitempty)
+### Optional Field Omission
 
-Optional struct fields with `null` values are automatically omitted during serialization:
+Optional struct fields with null values are automatically omitted during serialization:
 
 ```zig
 const User = struct {
@@ -192,7 +189,6 @@ const User = struct {
 const user = User{ .name = "Charlie", .email = null };
 const json = zjson.stringify(user);
 // Result: {"name":"Charlie"}
-// Note: email field is omitted because it's null
 ```
 
 ### Error Handling
@@ -220,18 +216,6 @@ const value = zjson.parse(json, allocator) catch |err| {
 };
 ```
 
-## Roadmap
-
-- [x] Compile-time struct → JSON serialization
-- [x] Runtime JSON → generic value parsing
-- [x] Enum support
-- [x] omitempty for optional fields
-- [ ] Deserialize JSON → struct (typed deserialization)
-- [ ] Custom field names / field renaming
-- [ ] Better error messages with line/column info
-- [ ] Streaming parser/encoder
-- [ ] JSON schema validation
-
 ## Testing
 
 Run the test suite:
@@ -242,16 +226,16 @@ zig build test
 
 Tests are organized by category:
 
-- `stringify_test.zig` - Compile-time serialization tests
-- `parse_test.zig` - Runtime parsing tests
-- `string_test.zig` - String escaping tests
+- stringify_test.zig - Compile-time serialization tests
+- parse_test.zig - Runtime parsing tests
+- string_test.zig - String escaping tests
 
 ## Performance Characteristics
 
-- **Stringify**: Compile-time evaluation - zero runtime overhead
-- **Parse**: Single-pass parser with O(n) complexity
-- **Numbers**: Stored as strings to preserve arbitrary precision
-- **Memory**: Allocator-based, caller controls cleanup
+Stringify: Compile-time evaluation - zero runtime overhead
+Parse: Single-pass parser with O(n) complexity
+Numbers: Stored as strings to preserve arbitrary precision
+Memory: Allocator-based, caller controls cleanup
 
 ## Building Examples
 
@@ -261,69 +245,37 @@ zig build examples
 
 ## Project Status
 
-**Early-stage**: APIs are evolving. Contributions welcome!
+Early-stage: APIs are evolving. Contributions welcome.
 
 ## Contributing
 
-Contributions are encouraged! Please:
+Contributions are encouraged. Please:
 
 1. Fork the repository
 2. Create a feature branch
 3. Add tests for new functionality
-4. Ensure all tests pass: `zig build test`
+4. Ensure all tests pass: zig build test
 5. Submit a Pull Request
 
-### Development Guidelines
+Development guidelines:
 
 - Follow existing code style
 - Add tests for all new features
 - Update README for API changes
-- Test with `zig build test` before submitting
+- Test with zig build test before submitting
+
+## Roadmap
+
+- [x] Compile-time struct to JSON serialization
+- [x] Runtime JSON to generic value parsing
+- [x] Enum support
+- [x] omitempty for optional fields
+- [ ] Deserialize JSON to struct (typed deserialization)
+- [ ] Custom field names / field renaming
+- [ ] Better error messages with line/column info
+- [ ] Streaming parser/encoder
+- [ ] JSON schema validation
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built for [Zig](https://ziglang.org) 0.15.2+
-- Inspired by fast, minimal JSON parsers with compile-time capabilities
-
----
-
-**Latest Release**: 0.1.0 | **Zig Version**: 0.15.2+
-
-**For `parse`:**
-
-- Returns a `Value` union type that can be:
-  - `.Null` - JSON null
-  - `.Bool: bool` - JSON boolean
-  - `.Number: []const u8` - JSON number (kept as string for precision)
-  - `.String: []const u8` - JSON string
-  - `.Array: []const Value` - JSON array
-  - `.Object: []const Pair` - JSON object (array of key-value pairs)
-
-### omitempty
-
-Optional struct fields with `null` values are automatically omitted in `stringify`:
-
-```zig
-const User = struct {
-    name: []const u8,
-    email: ?[]const u8 = null,
-};
-
-const user = User{ .name = "Bob", .email = null };
-const json = zjson.stringify(user);
-// Result: {"name":"Bob"} (email omitted)
-```
-
-### Memory Management
-
-The `parse()` function allocates all JSON data with the provided allocator. Use `freeValue()` to recursively free all allocated memory:
-
-```zig
-const value = try zjson.parse(json_input, allocator);
-defer zjson.freeValue(value, allocator);
-// Use value...
-```
+This project is licensed under the MIT License - see the LICENSE file for details.
