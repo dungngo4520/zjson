@@ -2,6 +2,7 @@ const val = @import("value.zig");
 const str = @import("stringify.zig");
 const prs = @import("parse.zig");
 const conv = @import("convert.zig");
+const unmarshal_mod = @import("unmarshal.zig");
 
 // Re-export all public APIs
 pub const Error = val.Error;
@@ -34,3 +35,8 @@ pub const objectLen = conv.objectLen;
 pub const getObjectField = conv.getObjectField;
 pub const getArrayElement = conv.getArrayElement;
 pub const getNumberString = conv.getNumberString;
+
+// Unmarshal functions for deserializing into typed structs
+pub const unmarshal = unmarshal_mod.unmarshal;
+pub const getFieldAs = unmarshal_mod.getFieldAs;
+pub const arrayAs = unmarshal_mod.arrayAs;
