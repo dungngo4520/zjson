@@ -30,3 +30,9 @@ pub const StringifyOptions = struct {
     omit_null: bool = true,
     sort_keys: bool = false,
 };
+
+pub const ParseOptions = struct {
+    allow_comments: bool = false,
+    allow_trailing_commas: bool = false,
+    allow_control_chars: bool = false,
+};

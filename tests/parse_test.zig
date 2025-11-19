@@ -7,32 +7,32 @@ test "parse basic types" {
     const allocator = gpa.allocator();
 
     {
-        const result = try zjson.parse("null", allocator);
+        const result = try zjson.parse("null", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .Null);
     }
 
     {
-        const result = try zjson.parse("true", allocator);
+        const result = try zjson.parse("true", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .Bool and result.Bool == true);
     }
 
     {
-        const result = try zjson.parse("false", allocator);
+        const result = try zjson.parse("false", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .Bool and result.Bool == false);
     }
 
     {
-        const result = try zjson.parse("42", allocator);
+        const result = try zjson.parse("42", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .Number);
         try std.testing.expectEqualStrings("42", result.Number);
     }
 
     {
-        const result = try zjson.parse("\"hello\"", allocator);
+        const result = try zjson.parse("\"hello\"", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .String);
         try std.testing.expectEqualStrings("hello", result.String);
@@ -45,7 +45,7 @@ test "parse arrays" {
     const allocator = gpa.allocator();
 
     {
-        const result = try zjson.parse("[1,2,3]", allocator);
+        const result = try zjson.parse("[1,2,3]", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result == .Array);
         try std.testing.expect(result.Array.len == 3);
@@ -55,7 +55,7 @@ test "parse arrays" {
     }
 
     {
-        const result = try zjson.parse("[]", allocator);
+        const result = try zjson.parse("[]", allocator, .{});
         defer zjson.freeValue(result, allocator);
         try std.testing.expect(result.Array.len == 0);
     }
@@ -66,7 +66,7 @@ test "parse objects" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const result = try zjson.parse("{\"name\":\"Alice\",\"age\":30}", allocator);
+    const result = try zjson.parse("{\"name\":\"Alice\",\"age\":30}", allocator, .{});
     defer zjson.freeValue(result, allocator);
     try std.testing.expect(result == .Object);
     try std.testing.expect(result.Object.len == 2);
@@ -82,10 +82,52 @@ test "parse complex nested structure" {
     const allocator = gpa.allocator();
 
     const json = "{\"users\":[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]}";
-    const result = try zjson.parse(json, allocator);
+    const result = try zjson.parse(json, allocator, .{});
     defer zjson.freeValue(result, allocator);
     try std.testing.expect(result == .Object);
     try std.testing.expectEqualStrings("users", result.Object[0].key);
     try std.testing.expect(result.Object[0].value == .Array);
     try std.testing.expect(result.Object[0].value.Array.len == 2);
+}
+
+test "parse with trailing commas" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    {
+        const result = try zjson.parse("[1,2,3,]", allocator, .{ .allow_trailing_commas = true });
+        defer zjson.freeValue(result, allocator);
+        try std.testing.expect(result == .Array);
+        try std.testing.expect(result.Array.len == 3);
+    }
+
+    {
+        const result = try zjson.parse("{\"a\":1,\"b\":2,}", allocator, .{ .allow_trailing_commas = true });
+        defer zjson.freeValue(result, allocator);
+        try std.testing.expect(result == .Object);
+        try std.testing.expect(result.Object.len == 2);
+    }
+}
+
+test "parse with comments" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    {
+        const json = "[1, /* comment */ 2, 3]";
+        const result = try zjson.parse(json, allocator, .{ .allow_comments = true });
+        defer zjson.freeValue(result, allocator);
+        try std.testing.expect(result == .Array);
+        try std.testing.expect(result.Array.len == 3);
+    }
+
+    {
+        const json = "// line comment\n{\"a\": 1}";
+        const result = try zjson.parse(json, allocator, .{ .allow_comments = true });
+        defer zjson.freeValue(result, allocator);
+        try std.testing.expect(result == .Object);
+        try std.testing.expect(result.Object.len == 1);
+    }
 }

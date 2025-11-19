@@ -61,10 +61,17 @@ pub fn main() !void {
     });
     defer allocator.free(json2);
     std.debug.print("{s}\n", .{json2});
-
-    // Runtime parse
-    const parsed = try zjson.parse("{\"name\":\"Bob\",\"age\":25}", allocator);
+    // Runtime parse with default options
+    const parsed = try zjson.parse("{\"name\":\"Bob\",\"age\":25}", allocator, .{});
     defer zjson.freeValue(parsed, allocator);
+
+    // Parse with trailing commas allowed
+    const with_trailing = try zjson.parse("[1,2,3,]", allocator, .{ .allow_trailing_commas = true });
+    defer zjson.freeValue(with_trailing, allocator);
+
+    // Parse with comments allowed
+    const with_comments = try zjson.parse("/* comment */ {\"x\": 1}", allocator, .{ .allow_comments = true });
+    defer zjson.freeValue(with_comments, allocator);
 }
 ```
 
@@ -99,12 +106,24 @@ pub const StringifyOptions = struct {
 };
 ```
 
-### parse(input, allocator)
+### parse(input, allocator, options)
 
-Parses a JSON string into a Value union type.
+Parses a JSON string into a Value union type. Requires an allocator and parse options.
 
 ```zig
-pub fn parse(input: []const u8, allocator: std.mem.Allocator) Error!Value
+pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOptions) Error!Value
+```
+
+### ParseOptions
+
+Control JSON parsing behavior:
+
+```zig
+pub const ParseOptions = struct {
+    allow_comments: bool = false,         // Allow // and /* */ comments
+    allow_trailing_commas: bool = false,  // Allow trailing commas in arrays and objects
+    allow_control_chars: bool = false,    // Allow control characters in whitespace
+};
 ```
 
 ### freeValue(value, allocator)
