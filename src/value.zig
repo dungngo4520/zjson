@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Error = error{
     UnexpectedEnd,
     InvalidSyntax,
@@ -8,6 +10,23 @@ pub const Error = error{
     ExpectedValue,
     TrailingCharacters,
     OutOfMemory,
+};
+
+/// Detailed parse error with position information
+pub const ParseError = struct {
+    error_type: Error,
+    pos: usize,
+    line: usize,
+    column: usize,
+
+    pub fn format(self: ParseError, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        return std.fmt.format(writer, "{s} at line {d}, column {d} (pos {d})", .{
+            @errorName(self.error_type),
+            self.line,
+            self.column,
+            self.pos,
+        });
+    }
 };
 
 pub const Value = union(enum) {

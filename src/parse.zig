@@ -5,6 +5,7 @@ pub const Error = value_mod.Error;
 pub const Value = value_mod.Value;
 pub const Pair = value_mod.Pair;
 pub const ParseOptions = value_mod.ParseOptions;
+pub const ParseError = value_mod.ParseError;
 
 pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOptions) Error!Value {
     var parser = Parser{
@@ -12,6 +13,8 @@ pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOpti
         .pos = 0,
         .allocator = allocator,
         .options = options,
+        .line = 1,
+        .column = 1,
     };
     const result = try parser.parseValue();
 
@@ -24,6 +27,51 @@ pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOpti
     }
 
     return result;
+}
+
+/// Parse with detailed error reporting including line and column
+pub fn parseWithError(input: []const u8, allocator: std.mem.Allocator, options: ParseOptions) Error!Value {
+    var parser = Parser{
+        .input = input,
+        .pos = 0,
+        .allocator = allocator,
+        .options = options,
+        .line = 1,
+        .column = 1,
+    };
+    const result = try parser.parseValue();
+
+    // Check for trailing characters if not explicitly allowed
+    parser.skipWhitespace();
+    if (parser.pos < parser.input.len) {
+        // Free allocated memory before returning error
+        freeValue(result, allocator);
+        return Error.TrailingCharacters;
+    }
+
+    return result;
+}
+
+/// Get detailed error information for the last error
+pub fn getLastParseError(input: []const u8, pos: usize) ParseError {
+    var line: usize = 1;
+    var column: usize = 1;
+
+    for (0..@min(pos, input.len)) |i| {
+        if (input[i] == '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    return ParseError{
+        .error_type = Error.InvalidSyntax,
+        .pos = pos,
+        .line = line,
+        .column = column,
+    };
 }
 
 pub fn freeValue(val: Value, allocator: std.mem.Allocator) void {
@@ -52,6 +100,8 @@ const Parser = struct {
     pos: usize,
     allocator: std.mem.Allocator,
     options: ParseOptions,
+    line: usize,
+    column: usize,
 
     fn parseValue(self: *Parser) Error!Value {
         self.skipWhitespace();
@@ -296,9 +346,16 @@ const Parser = struct {
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
             if (std.ascii.isWhitespace(c)) {
+                if (c == '\n') {
+                    self.line += 1;
+                    self.column = 1;
+                } else {
+                    self.column += 1;
+                }
                 self.pos += 1;
             } else if (self.options.allow_control_chars and c < 0x20) {
                 // Allow control characters if option is enabled
+                self.column += 1;
                 self.pos += 1;
             } else {
                 break;
