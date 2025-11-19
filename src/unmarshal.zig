@@ -10,7 +10,7 @@ pub const Pair = value_mod.Pair;
 /// Missing fields are left at their zero/default values.
 pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
     const type_info = @typeInfo(T);
-    
+
     if (type_info != .@"struct") {
         return Error.InvalidSyntax;
     }
@@ -21,7 +21,7 @@ pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Err
 
     const obj = val.Object;
     const fields = type_info.@"struct".fields;
-    
+
     var result: T = undefined;
     var initialized_fields = [_]bool{false} ** fields.len;
 

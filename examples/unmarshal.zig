@@ -14,7 +14,7 @@ pub fn main() !void {
     };
 
     // Parse JSON into a Value
-    const json = 
+    const json =
         \\{
         \\  "name": "Alice",
         \\  "age": 30,
