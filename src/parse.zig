@@ -14,7 +14,7 @@ pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOpti
         .options = options,
     };
     const result = try parser.parseValue();
-    
+
     // Check for trailing characters if not explicitly allowed
     parser.skipWhitespace();
     if (parser.pos < parser.input.len) {
@@ -22,7 +22,7 @@ pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOpti
         freeValue(result, allocator);
         return Error.TrailingCharacters;
     }
-    
+
     return result;
 }
 
