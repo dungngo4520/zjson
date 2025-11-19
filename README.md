@@ -50,12 +50,15 @@ pub fn main() !void {
     };
 
     // Compile-time stringify
-    const json1 = zjson.stringify(.{ .hello = "world" });
+    const json1 = zjson.stringify(.{ .hello = "world" }, .{});
     std.debug.print("{s}\n", .{json1});
 
-    // Runtime stringify
+    // Runtime stringify with options
     const person = Person{ .name = "Alice", .age = 30 };
-    const json2 = try zjson.stringifyAlloc(person, allocator);
+    const json2 = try zjson.stringifyAlloc(person, allocator, .{
+        .pretty = true,
+        .indent = 2,
+    });
     defer allocator.free(json2);
     std.debug.print("{s}\n", .{json2});
 
@@ -67,20 +70,33 @@ pub fn main() !void {
 
 ## API Reference
 
-### stringify(value)
+### stringify(value, options)
 
 Converts a Zig value to a JSON string at compile-time. The result is embedded in the binary as a constant.
 
 ```zig
-pub fn stringify(comptime value: anytype) []const u8
+pub fn stringify(comptime value: anytype, comptime options: StringifyOptions) []const u8
 ```
 
-### stringifyAlloc(value, allocator)
+### stringifyAlloc(value, allocator, options)
 
 Converts a Zig value to a JSON string at runtime. Requires an allocator and returns an owned slice that must be freed.
 
 ```zig
-pub fn stringifyAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8
+pub fn stringifyAlloc(value: anytype, allocator: std.mem.Allocator, options: StringifyOptions) std.mem.Allocator.Error![]u8
+```
+
+### StringifyOptions
+
+Control JSON output formatting:
+
+```zig
+pub const StringifyOptions = struct {
+    pretty: bool = false,           // Enable pretty-printing with newlines
+    indent: u32 = 2,                // Indentation level (spaces)
+    omit_null: bool = true,         // Skip null-valued fields
+    sort_keys: bool = false,        // Sort object keys (not yet implemented)
+};
 ```
 
 ### parse(input, allocator)

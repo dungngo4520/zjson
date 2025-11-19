@@ -1,17 +1,19 @@
 const std = @import("std");
+const value_mod = @import("value.zig");
 
-/// Compile-time JSON serialization for Zig structs and values
-pub fn stringify(comptime value: anytype) []const u8 {
-    return comptime _stringifyHelper(value);
+/// Compile-time JSON serialization with options
+/// Usage: stringify(value, options)
+pub fn stringify(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
+    return comptime _stringifyHelper(value, options);
 }
 
-/// Runtime JSON serialization requiring an allocator
-pub fn stringifyAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
-    return _stringifyAllocHelper(value, allocator);
+/// Runtime JSON serialization with options
+pub fn stringifyAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
+    return _stringifyAllocHelper(value, allocator, options);
 }
 
 // Compile-time stringify helpers
-fn _stringifyHelper(comptime value: anytype) []const u8 {
+fn _stringifyHelper(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
     const T = @TypeOf(value);
     if (T == bool) {
         return if (value) "true" else "false";
@@ -25,9 +27,9 @@ fn _stringifyHelper(comptime value: anytype) []const u8 {
             const str: []const u8 = value;
             return _escape_string(str);
         } else if (ptr_info.size == .slice) {
-            return _stringifyArray(value);
+            return _stringifyArrayComptime(value, options);
         } else if (@typeInfo(ptr_info.child) == .array) {
-            return _stringifyArray(value);
+            return _stringifyArrayComptime(value, options);
         } else {
             @compileError("zjson: unsupported pointer type for stringify: " ++ @typeName(T));
         }
@@ -37,20 +39,20 @@ fn _stringifyHelper(comptime value: anytype) []const u8 {
         return _escape_string(@tagName(value));
     } else if (@typeInfo(T) == .optional) {
         if (value) |inner| {
-            return _stringifyHelper(inner);
+            return _stringifyHelper(inner, options);
         } else {
             return "null";
         }
     } else if (@typeInfo(T) == .@"struct") {
-        return _stringifyStruct(value);
+        return _stringifyStructComptime(value, options);
     } else if (@typeInfo(T) == .array or @typeInfo(T) == .vector) {
-        return _stringifyArray(value);
+        return _stringifyArrayComptime(value, options);
     } else {
         @compileError("zjson: unsupported type for stringify: " ++ @typeName(T));
     }
 }
 
-fn _stringifyStruct(comptime value: anytype) []const u8 {
+fn _stringifyStructComptime(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
     const T = @TypeOf(value);
     const fields = @typeInfo(T).@"struct".fields;
 
@@ -60,32 +62,73 @@ fn _stringifyStruct(comptime value: anytype) []const u8 {
     inline for (fields) |field| {
         const field_value = @field(value, field.name);
 
-        if (@typeInfo(field.type) == .optional and field_value == null) {
-            continue;
+        // Skip null fields if omit_null is true
+        comptime var should_skip = false;
+        if (options.omit_null and @typeInfo(field.type) == .optional and field_value == null) {
+            should_skip = true;
         }
 
-        if (first) {
-            first = false;
-            result = result ++ _escape_string(field.name) ++ ":" ++ _stringifyHelper(field_value);
-        } else {
-            result = result ++ "," ++ _escape_string(field.name) ++ ":" ++ _stringifyHelper(field_value);
+        if (!should_skip) {
+            if (first) {
+                first = false;
+                if (options.pretty) {
+                    result = result ++ "\n";
+                    inline for (0..options.indent) |_| {
+                        result = result ++ " ";
+                    }
+                    result = result ++ _escape_string(field.name) ++ ": " ++ _stringifyHelper(field_value, options);
+                } else {
+                    result = result ++ _escape_string(field.name) ++ ":" ++ _stringifyHelper(field_value, options);
+                }
+            } else {
+                if (options.pretty) {
+                    result = result ++ ",\n";
+                    inline for (0..options.indent) |_| {
+                        result = result ++ " ";
+                    }
+                    result = result ++ _escape_string(field.name) ++ ": " ++ _stringifyHelper(field_value, options);
+                } else {
+                    result = result ++ "," ++ _escape_string(field.name) ++ ":" ++ _stringifyHelper(field_value, options);
+                }
+            }
         }
+    }
+
+    if (options.pretty and !first) {
+        result = result ++ "\n";
     }
     result = result ++ "}";
     return result;
 }
-
-fn _stringifyArray(comptime value: anytype) []const u8 {
+fn _stringifyArrayComptime(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
     comptime var result: []const u8 = "[";
     comptime var first = true;
 
     inline for (value) |item| {
         if (first) {
             first = false;
-            result = result ++ _stringifyHelper(item);
+            if (options.pretty) {
+                result = result ++ "\n";
+                inline for (0..options.indent) |_| {
+                    result = result ++ " ";
+                }
+            }
+            result = result ++ _stringifyHelper(item, options);
         } else {
-            result = result ++ "," ++ _stringifyHelper(item);
+            if (options.pretty) {
+                result = result ++ ",\n";
+                inline for (0..options.indent) |_| {
+                    result = result ++ " ";
+                }
+            } else {
+                result = result ++ ",";
+            }
+            result = result ++ _stringifyHelper(item, options);
         }
+    }
+
+    if (options.pretty and !first) {
+        result = result ++ "\n";
     }
     result = result ++ "]";
     return result;
@@ -117,7 +160,7 @@ fn _escape_string(s: []const u8) []const u8 {
 }
 
 // Runtime stringify helpers
-fn _stringifyAllocHelper(value: anytype, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+fn _stringifyAllocHelper(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
 
     if (T == bool) {
@@ -132,9 +175,9 @@ fn _stringifyAllocHelper(value: anytype, allocator: std.mem.Allocator) std.mem.A
             const str: []const u8 = value;
             return _escapeStringAlloc(str, allocator);
         } else if (ptr_info.size == .slice) {
-            return _stringifyArrayAlloc(value, allocator);
+            return _stringifyArrayAlloc(value, allocator, options);
         } else if (@typeInfo(ptr_info.child) == .array) {
-            return _stringifyArrayAlloc(value, allocator);
+            return _stringifyArrayAlloc(value, allocator, options);
         } else {
             @compileError("zjson: unsupported pointer type for stringify: " ++ @typeName(T));
         }
@@ -147,20 +190,20 @@ fn _stringifyAllocHelper(value: anytype, allocator: std.mem.Allocator) std.mem.A
         return _escapeStringAlloc(@tagName(value), allocator);
     } else if (@typeInfo(T) == .optional) {
         if (value) |inner| {
-            return _stringifyAllocHelper(inner, allocator);
+            return _stringifyAllocHelper(inner, allocator, options);
         } else {
             return allocator.dupe(u8, "null");
         }
     } else if (@typeInfo(T) == .@"struct") {
-        return _stringifyStructAlloc(value, allocator);
+        return _stringifyStructAlloc(value, allocator, options);
     } else if (@typeInfo(T) == .array) {
-        return _stringifyArrayAlloc(value, allocator);
+        return _stringifyArrayAlloc(value, allocator, options);
     } else {
         @compileError("zjson: unsupported type for stringify: " ++ @typeName(T));
     }
 }
 
-fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
     const fields = @typeInfo(T).@"struct".fields;
 
@@ -173,29 +216,50 @@ fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.A
     inline for (fields) |field| {
         const field_value = @field(value, field.name);
 
-        const should_skip = @typeInfo(field.type) == .optional and field_value == null;
+        // Skip null fields if omit_null is true
+        var should_skip = false;
+        if (options.omit_null and @typeInfo(field.type) == .optional and field_value == null) {
+            should_skip = true;
+        }
+
         if (!should_skip) {
             if (!first) {
                 try buffer.append(',');
             }
             first = false;
 
+            // Add newline and indentation for pretty printing
+            if (options.pretty) {
+                try buffer.append('\n');
+                for (0..options.indent) |_| {
+                    try buffer.append(' ');
+                }
+            }
+
             const key_str = try _escapeStringAlloc(field.name, allocator);
             defer allocator.free(key_str);
             try buffer.appendSlice(key_str);
             try buffer.append(':');
 
-            const val_str = try _stringifyAllocHelper(field_value, allocator);
+            if (options.pretty) {
+                try buffer.append(' ');
+            }
+
+            const val_str = try _stringifyAllocHelper(field_value, allocator, options);
             defer allocator.free(val_str);
             try buffer.appendSlice(val_str);
         }
+    }
+
+    if (options.pretty and !first) {
+        try buffer.append('\n');
     }
 
     try buffer.append('}');
     return buffer.toOwnedSlice();
 }
 
-fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
     var buffer = std.array_list.Managed(u8).init(allocator);
     errdefer buffer.deinit();
 
@@ -208,9 +272,21 @@ fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator) std.mem.Al
         }
         first = false;
 
-        const item_str = try _stringifyAllocHelper(item, allocator);
+        // Add newline and indentation for pretty printing
+        if (options.pretty) {
+            try buffer.append('\n');
+            for (0..options.indent) |_| {
+                try buffer.append(' ');
+            }
+        }
+
+        const item_str = try _stringifyAllocHelper(item, allocator, options);
         defer allocator.free(item_str);
         try buffer.appendSlice(item_str);
+    }
+
+    if (options.pretty and !first) {
+        try buffer.append('\n');
     }
 
     try buffer.append(']');

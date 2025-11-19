@@ -6,6 +6,7 @@ const prs = @import("parse.zig");
 pub const Error = val.Error;
 pub const Value = val.Value;
 pub const Pair = val.Pair;
+pub const StringifyOptions = val.StringifyOptions;
 
 pub const stringify = str.stringify;
 pub const stringifyAlloc = str.stringifyAlloc;

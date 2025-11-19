@@ -23,3 +23,10 @@ pub const Pair = struct {
     key: []const u8,
     value: Value,
 };
+
+pub const StringifyOptions = struct {
+    pretty: bool = false,
+    indent: u32 = 2,
+    omit_null: bool = true,
+    sort_keys: bool = false,
+};
