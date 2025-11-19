@@ -88,6 +88,10 @@ fn _stringifyGeneric(value: anytype, options: value_mod.StringifyOptions, compti
 }
 
 fn _stringifyStructComptime(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
+    if (options.sort_keys) {
+        @compileError("sort_keys is not supported in compile-time stringify(). Use stringifyAlloc() for runtime sorting of keys.");
+    }
+
     const T = @TypeOf(value);
     const fields = @typeInfo(T).@"struct".fields;
 
@@ -189,13 +193,42 @@ fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: 
     try buffer.append('{');
     var first = true;
 
-    inline for (fields) |field| {
-        const field_value = @field(value, field.name);
-        if (!_shouldSkipFieldCheckedRuntime(@TypeOf(field_value), field_value, options)) {
-            const val_str = try _stringifyGeneric(field_value, options, false, allocator);
-            defer allocator.free(val_str);
-            try _appendFieldAlloc(&buffer, field.name, val_str, allocator, options, !first);
-            first = false;
+    // If sort_keys is enabled, collect field names and sort them
+    if (options.sort_keys) {
+        var field_names: [fields.len][]const u8 = undefined;
+        inline for (fields, 0..) |field, i| {
+            field_names[i] = field.name;
+        }
+
+        std.mem.sort([]const u8, &field_names, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.mem.order(u8, a, b) == .lt;
+            }
+        }.lessThan);
+
+        for (field_names) |field_name| {
+            inline for (fields) |field| {
+                if (std.mem.eql(u8, field.name, field_name)) {
+                    const field_value = @field(value, field.name);
+                    if (!_shouldSkipFieldCheckedRuntime(@TypeOf(field_value), field_value, options)) {
+                        const val_str = try _stringifyGeneric(field_value, options, false, allocator);
+                        defer allocator.free(val_str);
+                        try _appendFieldAlloc(&buffer, field.name, val_str, allocator, options, !first);
+                        first = false;
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        inline for (fields) |field| {
+            const field_value = @field(value, field.name);
+            if (!_shouldSkipFieldCheckedRuntime(@TypeOf(field_value), field_value, options)) {
+                const val_str = try _stringifyGeneric(field_value, options, false, allocator);
+                defer allocator.free(val_str);
+                try _appendFieldAlloc(&buffer, field.name, val_str, allocator, options, !first);
+                first = false;
+            }
         }
     }
 
