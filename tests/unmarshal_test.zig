@@ -295,5 +295,79 @@ pub fn main() !void {
         }
     }
 
+    // Test 11: Direct array unmarshal (slice)
+    {
+        std.debug.print("Test 11: Direct array unmarshal (slice)\n", .{});
+        const json = "[10,20,30,40,50]";
+        const value = try zjson.parse(json, allocator, .{});
+        defer zjson.freeValue(value, allocator);
+
+        const numbers = try zjson.unmarshal([]i32, value, allocator);
+        defer allocator.free(numbers);
+
+        std.debug.print("  slice: ", .{});
+        for (numbers) |num| {
+            std.debug.print("{d} ", .{num});
+        }
+        std.debug.print("\n", .{});
+
+        if (numbers.len == 5 and numbers[0] == 10 and numbers[4] == 50) {
+            std.debug.print("  ✓ PASS\n\n", .{});
+        } else {
+            std.debug.print("  ✗ FAIL\n\n", .{});
+            return error.TestFailed;
+        }
+    }
+
+    // Test 12: Direct array unmarshal (fixed-size array)
+    {
+        std.debug.print("Test 12: Direct array unmarshal (fixed-size array)\n", .{});
+        const json = "[1,2,3,4]";
+        const value = try zjson.parse(json, allocator, .{});
+        defer zjson.freeValue(value, allocator);
+
+        const arr = try zjson.unmarshal([4]f64, value, allocator);
+
+        std.debug.print("  array: ", .{});
+        for (arr) |num| {
+            std.debug.print("{d:.1} ", .{num});
+        }
+        std.debug.print("\n", .{});
+
+        if (arr[0] == 1 and arr[3] == 4) {
+            std.debug.print("  ✓ PASS\n\n", .{});
+        } else {
+            std.debug.print("  ✗ FAIL\n\n", .{});
+            return error.TestFailed;
+        }
+    }
+
+    // Test 13: Array of strings unmarshal
+    {
+        std.debug.print("Test 13: Array of strings unmarshal\n", .{});
+        const json = "[\"hello\",\"world\",\"zig\"]";
+        const value = try zjson.parse(json, allocator, .{});
+        defer zjson.freeValue(value, allocator);
+
+        const words = try zjson.unmarshal([][]const u8, value, allocator);
+        defer {
+            for (words) |word| allocator.free(word);
+            allocator.free(words);
+        }
+
+        std.debug.print("  words: ", .{});
+        for (words) |word| {
+            std.debug.print("[{s}] ", .{word});
+        }
+        std.debug.print("\n", .{});
+
+        if (words.len == 3 and std.mem.eql(u8, words[0], "hello")) {
+            std.debug.print("  ✓ PASS\n\n", .{});
+        } else {
+            std.debug.print("  ✗ FAIL\n\n", .{});
+            return error.TestFailed;
+        }
+    }
+
     std.debug.print("All tests passed! ✓\n", .{});
 }

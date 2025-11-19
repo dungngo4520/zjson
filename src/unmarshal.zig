@@ -5,50 +5,94 @@ pub const Value = value_mod.Value;
 pub const Error = value_mod.Error;
 pub const Pair = value_mod.Pair;
 
-/// Unmarshal a Value into a target struct type with automatic field mapping
-/// Requires the Value to be an Object. Fields are matched by name.
-/// Missing fields are left at their zero/default values.
+/// Unmarshal a Value into a target type (struct, slice, array, or primitive)
+/// For structs: Requires the Value to be an Object. Fields are matched by name.
+/// For slices/arrays: Requires the Value to be an Array.
 pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
     const type_info = @typeInfo(T);
 
-    if (type_info != .@"struct") {
-        return Error.InvalidSyntax;
-    }
-
-    if (val != .Object) {
-        return Error.InvalidSyntax;
-    }
-
-    const obj = val.Object;
-    const fields = type_info.@"struct".fields;
-
-    var result: T = undefined;
-    var initialized_fields = [_]bool{false} ** fields.len;
-
-    // Iterate over object pairs and match to struct fields
-    for (obj) |pair| {
-        inline for (fields, 0..) |field, i| {
-            if (std.mem.eql(u8, pair.key, field.name)) {
-                const field_value = try _unmarshalField(field.type, pair.value, allocator);
-                @field(&result, field.name) = field_value;
-                initialized_fields[i] = true;
-                break;
+    return switch (type_info) {
+        .@"struct" => {
+            if (val != .Object) {
+                return Error.InvalidSyntax;
             }
-        }
-    }
 
-    // Initialize any uninitialized fields to their zero values
-    inline for (fields, 0..) |field, i| {
-        if (!initialized_fields[i]) {
-            @field(&result, field.name) = @as(field.type, undefined);
-            // For optional fields, set to null; for others, set to zero
-            if (@typeInfo(field.type) == .optional) {
-                @field(&result, field.name) = null;
+            const obj = val.Object;
+            const fields = type_info.@"struct".fields;
+
+            var result: T = undefined;
+            var initialized_fields = [_]bool{false} ** fields.len;
+
+            // Iterate over object pairs and match to struct fields
+            for (obj) |pair| {
+                inline for (fields, 0..) |field, i| {
+                    if (std.mem.eql(u8, pair.key, field.name)) {
+                        const field_value = try _unmarshalField(field.type, pair.value, allocator);
+                        @field(&result, field.name) = field_value;
+                        initialized_fields[i] = true;
+                        break;
+                    }
+                }
             }
-        }
-    }
 
-    return result;
+            // Initialize any uninitialized fields to their zero values
+            inline for (fields, 0..) |field, i| {
+                if (!initialized_fields[i]) {
+                    @field(&result, field.name) = @as(field.type, undefined);
+                    // For optional fields, set to null; for others, set to zero
+                    if (@typeInfo(field.type) == .optional) {
+                        @field(&result, field.name) = null;
+                    }
+                }
+            }
+
+            return result;
+        },
+        .pointer => {
+            const ptr_info = type_info.pointer;
+            if (ptr_info.size == .slice) {
+                // Handle slice types like []i32, [][]const u8, etc.
+                if (val != .Array) {
+                    return Error.InvalidSyntax;
+                }
+
+                const child_type = ptr_info.child;
+                var array_list = std.ArrayList(child_type).init(allocator);
+                defer array_list.deinit();
+
+                for (val.Array) |item| {
+                    const elem = try _unmarshalField(child_type, item, allocator);
+                    try array_list.append(elem);
+                }
+
+                return try array_list.toOwnedSlice();
+            } else {
+                return Error.InvalidSyntax;
+            }
+        },
+        .array => {
+            // Handle fixed-size arrays like [5]i32
+            if (val != .Array) {
+                return Error.InvalidSyntax;
+            }
+
+            const array_info = type_info.array;
+            if (val.Array.len != array_info.len) {
+                return Error.InvalidSyntax;
+            }
+
+            var result: T = undefined;
+            for (val.Array, 0..) |item, i| {
+                result[i] = try _unmarshalField(array_info.child, item, allocator);
+            }
+
+            return result;
+        },
+        else => {
+            // For primitives and other types, delegate to _unmarshalField
+            return try _unmarshalField(T, val, allocator);
+        },
+    };
 }
 
 /// Internal helper to unmarshal a single field value
