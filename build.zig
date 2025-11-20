@@ -17,6 +17,10 @@ pub fn build(b: *std.Build) void {
     const examples_step = b.step("examples", "Build all examples");
     build_examples(b, target, optimize, examples_step, zjson_module);
 
+    // Build benchmarks
+    const benchmark_step = b.step("benchmark", "Build benchmarks");
+    build_benchmarks(b, target, optimize, benchmark_step, zjson_module);
+
     // Build and run tests
     const test_step = b.step("test", "Run all tests");
     build_tests(b, target, optimize, test_step, zjson_module, test_filter);
@@ -103,6 +107,43 @@ fn build_tests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
             _ = test_filter;
 
             test_step.dependOn(&run_test.step);
+        }
+    }
+}
+
+fn build_benchmarks(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, benchmark_step: *std.Build.Step, zjson_module: *std.Build.Module) void {
+    var dir = b.build_root.handle.openDir("benchmark", .{ .iterate = true }) catch |err| {
+        std.debug.print("Warning: Could not open benchmark directory: {}\n", .{err});
+        return;
+    };
+    defer dir.close();
+
+    var walker = dir.walk(b.allocator) catch return;
+    defer walker.deinit();
+
+    while (walker.next() catch null) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".zig")) {
+            const bench_path = b.fmt("benchmark/{s}", .{entry.path});
+            const bench_name = std.fs.path.stem(entry.basename);
+
+            const bench_module = b.createModule(.{
+                .root_source_file = b.path(bench_path),
+                .target = target,
+                .optimize = optimize,
+            });
+
+            bench_module.addImport("zjson", zjson_module);
+
+            const exe = b.addExecutable(.{
+                .name = bench_name,
+                .root_module = bench_module,
+            });
+
+            const install_exe = b.addInstallArtifact(exe, .{
+                .dest_dir = .{ .override = .{ .custom = "benchmark" } },
+            });
+
+            benchmark_step.dependOn(&install_exe.step);
         }
     }
 }
