@@ -3,6 +3,7 @@ const str = @import("stringify.zig");
 const prs = @import("parse.zig");
 const conv = @import("convert.zig");
 const unmarshal_mod = @import("unmarshal.zig");
+const custom_mod = @import("custom.zig");
 
 // Re-export all public APIs
 pub const Error = val.Error;
@@ -40,3 +41,9 @@ pub const getNumberString = conv.getNumberString;
 pub const unmarshal = unmarshal_mod.unmarshal;
 pub const getFieldAs = unmarshal_mod.getFieldAs;
 pub const arrayAs = unmarshal_mod.arrayAs;
+
+// Custom marshaler support
+pub const hasCustomMarshal = custom_mod.hasCustomMarshal;
+pub const hasCustomUnmarshal = custom_mod.hasCustomUnmarshal;
+pub const stringifyWithCustom = custom_mod.stringifyWithCustom;
+pub const unmarshalWithCustom = custom_mod.unmarshalWithCustom;
