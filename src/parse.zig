@@ -19,7 +19,7 @@ pub fn parse(input: []const u8, allocator: std.mem.Allocator, options: ParseOpti
     const result = try parser.parseValue();
 
     // Check for trailing characters if not explicitly allowed
-    parser.skipWhitespace();
+    parser.skipWhitespaceAndComments();
     if (parser.pos < parser.input.len) {
         // Free allocated memory before returning error
         freeValue(result, allocator);
@@ -42,7 +42,7 @@ pub fn parseWithError(input: []const u8, allocator: std.mem.Allocator, options: 
     const result = try parser.parseValue();
 
     // Check for trailing characters if not explicitly allowed
-    parser.skipWhitespace();
+    parser.skipWhitespaceAndComments();
     if (parser.pos < parser.input.len) {
         // Free allocated memory before returning error
         freeValue(result, allocator);
@@ -77,7 +77,9 @@ pub fn getLastParseError(input: []const u8, pos: usize) ParseError {
 pub fn freeValue(val: Value, allocator: std.mem.Allocator) void {
     switch (val) {
         .String => |s| allocator.free(s),
-        .Number => |n| allocator.free(n),
+        .Number => {
+            // Number is a reference to input, not allocated
+        },
         .Array => |arr| {
             for (arr) |item| {
                 freeValue(item, allocator);
@@ -104,11 +106,7 @@ const Parser = struct {
     column: usize,
 
     fn parseValue(self: *Parser) Error!Value {
-        self.skipWhitespace();
-        if (self.options.allow_comments) {
-            self.skipComments();
-            self.skipWhitespace();
-        }
+        self.skipWhitespaceAndComments();
         if (self.pos >= self.input.len) return Error.UnexpectedEnd;
 
         const c = self.input[self.pos];
@@ -147,6 +145,11 @@ const Parser = struct {
         self.pos += 1;
 
         var result = std.array_list.Managed(u8).init(self.allocator);
+        errdefer result.deinit();
+
+        // Pre-allocate a reasonable size to reduce reallocations
+        const remaining = self.input.len - self.pos;
+        try result.ensureTotalCapacity(remaining);
 
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
@@ -185,7 +188,6 @@ const Parser = struct {
                 },
             }
         }
-        result.deinit();
         return Error.UnexpectedEnd;
     }
 
@@ -210,8 +212,7 @@ const Parser = struct {
         }
 
         const number_str = self.input[start..self.pos];
-        const result = try self.allocator.dupe(u8, number_str);
-        return Value{ .Number = result };
+        return Value{ .Number = number_str };
     }
 
     fn parseArray(self: *Parser) Error!Value {
@@ -219,12 +220,9 @@ const Parser = struct {
         self.pos += 1;
 
         var result = std.array_list.Managed(Value).init(self.allocator);
+        errdefer result.deinit();
 
-        self.skipWhitespace();
-        if (self.options.allow_comments) {
-            self.skipComments();
-            self.skipWhitespace();
-        }
+        self.skipWhitespaceAndComments();
         if (self.pos < self.input.len and self.input[self.pos] == ']') {
             self.pos += 1;
             return Value{ .Array = try result.toOwnedSlice() };
@@ -233,13 +231,8 @@ const Parser = struct {
         while (true) {
             try result.append(try self.parseValue());
 
-            self.skipWhitespace();
-            if (self.options.allow_comments) {
-                self.skipComments();
-                self.skipWhitespace();
-            }
+            self.skipWhitespaceAndComments();
             if (self.pos >= self.input.len) {
-                result.deinit();
                 return Error.UnexpectedEnd;
             }
 
@@ -248,18 +241,13 @@ const Parser = struct {
                 return Value{ .Array = try result.toOwnedSlice() };
             } else if (self.input[self.pos] == ',') {
                 self.pos += 1;
-                self.skipWhitespace();
-                if (self.options.allow_comments) {
-                    self.skipComments();
-                    self.skipWhitespace();
-                }
+                self.skipWhitespaceAndComments();
                 // Check for trailing comma
                 if (self.options.allow_trailing_commas and self.pos < self.input.len and self.input[self.pos] == ']') {
                     self.pos += 1;
                     return Value{ .Array = try result.toOwnedSlice() };
                 }
             } else {
-                result.deinit();
                 return Error.ExpectedCommaOrEnd;
             }
         }
@@ -270,38 +258,25 @@ const Parser = struct {
         self.pos += 1;
 
         var result = std.array_list.Managed(Pair).init(self.allocator);
+        errdefer result.deinit();
 
-        self.skipWhitespace();
-        if (self.options.allow_comments) {
-            self.skipComments();
-            self.skipWhitespace();
-        }
+        self.skipWhitespaceAndComments();
         if (self.pos < self.input.len and self.input[self.pos] == '}') {
             self.pos += 1;
             return Value{ .Object = try result.toOwnedSlice() };
         }
 
         while (true) {
-            self.skipWhitespace();
-            if (self.options.allow_comments) {
-                self.skipComments();
-                self.skipWhitespace();
-            }
+            self.skipWhitespaceAndComments();
             if (self.pos >= self.input.len or self.input[self.pos] != '"') {
-                result.deinit();
                 return Error.InvalidSyntax;
             }
 
             const key_value = try self.parseString();
             const key = key_value.String;
 
-            self.skipWhitespace();
-            if (self.options.allow_comments) {
-                self.skipComments();
-                self.skipWhitespace();
-            }
+            self.skipWhitespaceAndComments();
             if (self.pos >= self.input.len or self.input[self.pos] != ':') {
-                result.deinit();
                 return Error.ExpectedColon;
             }
             self.pos += 1;
@@ -310,13 +285,8 @@ const Parser = struct {
 
             try result.append(Pair{ .key = key, .value = val });
 
-            self.skipWhitespace();
-            if (self.options.allow_comments) {
-                self.skipComments();
-                self.skipWhitespace();
-            }
+            self.skipWhitespaceAndComments();
             if (self.pos >= self.input.len) {
-                result.deinit();
                 return Error.UnexpectedEnd;
             }
 
@@ -325,20 +295,28 @@ const Parser = struct {
                 return Value{ .Object = try result.toOwnedSlice() };
             } else if (self.input[self.pos] == ',') {
                 self.pos += 1;
-                self.skipWhitespace();
-                if (self.options.allow_comments) {
-                    self.skipComments();
-                    self.skipWhitespace();
-                }
+                self.skipWhitespaceAndComments();
                 // Check for trailing comma
                 if (self.options.allow_trailing_commas and self.pos < self.input.len and self.input[self.pos] == '}') {
                     self.pos += 1;
                     return Value{ .Object = try result.toOwnedSlice() };
                 }
             } else {
-                result.deinit();
                 return Error.ExpectedCommaOrEnd;
             }
+        }
+    }
+
+    fn skipWhitespaceAndComments(self: *Parser) void {
+        while (true) {
+            const old_pos = self.pos;
+            self.skipWhitespace();
+
+            if (!self.options.allow_comments) break;
+
+            self.skipComments();
+
+            if (self.pos == old_pos) break;
         }
     }
 
@@ -346,16 +324,17 @@ const Parser = struct {
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
             if (std.ascii.isWhitespace(c)) {
-                if (c == '\n') {
+                if (self.options.track_position and c == '\n') {
                     self.line += 1;
                     self.column = 1;
-                } else {
+                } else if (self.options.track_position) {
                     self.column += 1;
                 }
                 self.pos += 1;
             } else if (self.options.allow_control_chars and c < 0x20) {
-                // Allow control characters if option is enabled
-                self.column += 1;
+                if (self.options.track_position) {
+                    self.column += 1;
+                }
                 self.pos += 1;
             } else {
                 break;
@@ -373,20 +352,26 @@ const Parser = struct {
                     self.pos += 1;
                 }
                 if (self.pos < self.input.len and self.input[self.pos] == '\n') {
+                    if (self.options.track_position) {
+                        self.line += 1;
+                        self.column = 1;
+                    }
                     self.pos += 1;
                 }
-                self.skipWhitespace();
             } else if (self.input[self.pos] == '/' and self.input[self.pos + 1] == '*') {
                 // Block comment: skip until */
                 self.pos += 2;
                 while (self.pos + 1 < self.input.len) {
+                    if (self.input[self.pos] == '\n' and self.options.track_position) {
+                        self.line += 1;
+                        self.column = 1;
+                    }
                     if (self.input[self.pos] == '*' and self.input[self.pos + 1] == '/') {
                         self.pos += 2;
                         break;
                     }
                     self.pos += 1;
                 }
-                self.skipWhitespace();
             } else {
                 break;
             }
