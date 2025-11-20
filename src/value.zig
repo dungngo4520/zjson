@@ -33,7 +33,8 @@ pub const Value = union(enum) {
     Null,
     Bool: bool,
     Number: []const u8,
-    String: []const u8,
+    String: []const u8, // Borrowed from input (zero-copy)
+    StringOwned: []const u8, // Allocated (has escapes)
     Object: []const Pair,
     Array: []const Value,
 };

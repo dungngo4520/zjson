@@ -76,7 +76,13 @@ pub fn getLastParseError(input: []const u8, pos: usize) ParseError {
 
 pub fn freeValue(val: Value, allocator: std.mem.Allocator) void {
     switch (val) {
-        .String => |s| allocator.free(s),
+        .String => {
+            // Borrowed from input - don't free
+        },
+        .StringOwned => |s| {
+            // Allocated string - free it
+            allocator.free(s);
+        },
         .Number => {
             // Number is a reference to input, not allocated
         },
@@ -89,7 +95,7 @@ pub fn freeValue(val: Value, allocator: std.mem.Allocator) void {
         .Object => |obj| {
             for (obj) |pair| {
                 freeValue(pair.value, allocator);
-                allocator.free(pair.key);
+                // Keys are borrowed from input (zero-copy) - don't free
             }
             allocator.free(obj);
         },
@@ -144,51 +150,81 @@ const Parser = struct {
         if (self.input[self.pos] != '"') return Error.InvalidSyntax;
         self.pos += 1;
 
-        var result = std.array_list.Managed(u8).init(self.allocator);
-        errdefer result.deinit();
+        const start = self.pos;
+        var has_escapes = false;
 
-        // Pre-allocate a reasonable size to reduce reallocations
-        const remaining = self.input.len - self.pos;
-        try result.ensureTotalCapacity(remaining);
-
+        // First pass: scan to find end and check for escapes
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
-            switch (c) {
-                '"' => {
+            if (c == '"') {
+                // Found end quote
+                const str_slice = self.input[start..self.pos];
+                self.pos += 1;
+
+                if (!has_escapes) {
+                    // Zero-copy: return slice of input buffer
+                    return Value{ .String = str_slice };
+                } else {
+                    // Need to process escapes - allocate and unescape
+                    return try self.parseStringWithEscapes(start, self.pos - 1);
+                }
+            } else if (c == '\\') {
+                has_escapes = true;
+                self.pos += 1;
+                if (self.pos >= self.input.len) return Error.UnexpectedEnd;
+                // Skip the escaped character
+                if (self.input[self.pos] == 'u') {
+                    self.pos += 5; // Skip 'u' + 4 hex digits
+                } else {
                     self.pos += 1;
-                    return Value{ .String = try result.toOwnedSlice() };
-                },
-                '\\' => {
-                    self.pos += 1;
-                    if (self.pos >= self.input.len) return Error.UnexpectedEnd;
-                    switch (self.input[self.pos]) {
-                        '"' => try result.append('"'),
-                        '\\' => try result.append('\\'),
-                        '/' => try result.append('/'),
-                        'b' => try result.append('\x08'),
-                        'f' => try result.append('\x0C'),
-                        'n' => try result.append('\n'),
-                        'r' => try result.append('\r'),
-                        't' => try result.append('\t'),
-                        'u' => {
-                            self.pos += 1;
-                            if (self.pos + 3 >= self.input.len) return Error.InvalidEscape;
-                            const hex = self.input[self.pos .. self.pos + 4];
-                            const codepoint = std.fmt.parseInt(u16, hex, 16) catch return Error.InvalidEscape;
-                            try result.append(@intCast(codepoint));
-                            self.pos += 3;
-                        },
-                        else => return Error.InvalidEscape,
-                    }
-                    self.pos += 1;
-                },
-                else => {
-                    try result.append(c);
-                    self.pos += 1;
-                },
+                }
+            } else {
+                self.pos += 1;
             }
         }
         return Error.UnexpectedEnd;
+    }
+
+    fn parseStringWithEscapes(self: *Parser, start: usize, end: usize) Error!Value {
+        var result = std.array_list.Managed(u8).init(self.allocator);
+        errdefer result.deinit();
+
+        // Pre-allocate based on original length
+        try result.ensureTotalCapacity(end - start);
+
+        var i = start;
+        while (i < end) {
+            const c = self.input[i];
+            if (c == '\\') {
+                i += 1;
+                if (i >= end) return Error.UnexpectedEnd;
+                switch (self.input[i]) {
+                    '"' => try result.append('"'),
+                    '\\' => try result.append('\\'),
+                    '/' => try result.append('/'),
+                    'b' => try result.append('\x08'),
+                    'f' => try result.append('\x0C'),
+                    'n' => try result.append('\n'),
+                    'r' => try result.append('\r'),
+                    't' => try result.append('\t'),
+                    'u' => {
+                        i += 1;
+                        if (i + 3 >= end) return Error.InvalidEscape;
+                        const hex = self.input[i .. i + 4];
+                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch return Error.InvalidEscape;
+                        try result.append(@intCast(codepoint));
+                        i += 3;
+                    },
+                    else => return Error.InvalidEscape,
+                }
+                i += 1;
+            } else {
+                try result.append(c);
+                i += 1;
+            }
+        }
+
+        return Value{ .StringOwned = try result.toOwnedSlice() };
     }
 
     fn parseNumber(self: *Parser) Error!Value {
@@ -273,7 +309,11 @@ const Parser = struct {
             }
 
             const key_value = try self.parseString();
-            const key = key_value.String;
+            const key = switch (key_value) {
+                .String => |s| s,
+                .StringOwned => |s| s,
+                else => return Error.InvalidSyntax,
+            };
 
             self.skipWhitespaceAndComments();
             if (self.pos >= self.input.len or self.input[self.pos] != ':') {

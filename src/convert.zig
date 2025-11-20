@@ -71,6 +71,7 @@ pub fn toF32(val: Value) (Error || std.fmt.ParseFloatError)!f32 {
 pub fn toString(val: Value) Error![]const u8 {
     switch (val) {
         .String => |s| return s,
+        .StringOwned => |s| return s,
         else => return Error.InvalidSyntax,
     }
 }
