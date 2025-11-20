@@ -6,10 +6,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try benchmarkNestedArrays(allocator, 5, 100);
-    try benchmarkNestedArrays(allocator, 100, 50);
-    try benchmarkNestedObjects(allocator, 5, 100);
-    try benchmarkNestedObjects(allocator, 100, 50);
+    try benchmarkNestedArrays(allocator, 50, 100);
+    try benchmarkNestedArrays(allocator, 1000, 50);
+    try benchmarkNestedObjects(allocator, 50, 100);
+    try benchmarkNestedObjects(allocator, 1000, 50);
 }
 
 fn benchmarkNestedArrays(allocator: std.mem.Allocator, depth: usize, iterations: usize) !void {
