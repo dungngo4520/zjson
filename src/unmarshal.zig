@@ -57,15 +57,14 @@ pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Err
                 }
 
                 const child_type = ptr_info.child;
-                var array_list = std.ArrayList(child_type).init(allocator);
-                defer array_list.deinit();
+                const items = try allocator.alloc(child_type, val.Array.len);
 
-                for (val.Array) |item| {
+                for (val.Array, 0..) |item, i| {
                     const elem = try _unmarshalField(child_type, item, allocator);
-                    try array_list.append(elem);
+                    items[i] = elem;
                 }
 
-                return try array_list.toOwnedSlice();
+                return items;
             } else {
                 return Error.InvalidSyntax;
             }
@@ -130,14 +129,13 @@ fn _unmarshalField(comptime T: type, val: Value, allocator: std.mem.Allocator) E
                 // Slice type
                 if (val == .Array) {
                     const child_type = ptr_info.child;
-                    var array_list = std.ArrayList(child_type).init(allocator);
-                    defer array_list.deinit();
+                    const items = try allocator.alloc(child_type, val.Array.len);
 
-                    for (val.Array) |item| {
+                    for (val.Array, 0..) |item, i| {
                         const elem = try _unmarshalField(child_type, item, allocator);
-                        try array_list.append(elem);
+                        items[i] = elem;
                     }
-                    return try array_list.toOwnedSlice();
+                    return items;
                 }
                 return Error.InvalidSyntax;
             } else {
@@ -196,13 +194,12 @@ pub fn getFieldAs(comptime T: type, obj: Value, field_name: []const u8, allocato
 pub fn arrayAs(comptime T: type, arr: Value, allocator: std.mem.Allocator) Error![]T {
     if (arr != .Array) return Error.InvalidSyntax;
 
-    var result = std.ArrayList(T).init(allocator);
-    defer result.deinit();
+    const result = try allocator.alloc(T, arr.Array.len);
 
-    for (arr.Array) |item| {
+    for (arr.Array, 0..) |item, i| {
         const elem = try _unmarshalField(T, item, allocator);
-        try result.append(elem);
+        result[i] = elem;
     }
 
-    return try result.toOwnedSlice();
+    return result;
 }
