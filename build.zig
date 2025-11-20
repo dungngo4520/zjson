@@ -21,6 +21,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     build_tests(b, target, optimize, test_step, zjson_module, test_filter);
 
+    // Clean step: remove build artifacts
+    const clean_step = b.step("clean", "Remove build artifacts");
+    const clean_cmd = b.addRemoveDirTree(b.path("zig-out"));
+    clean_step.dependOn(&clean_cmd.step);
+
     // Default step: build examples and run tests
     const default_step = b.step("all", "Build examples and run tests (default)");
     default_step.dependOn(examples_step);
