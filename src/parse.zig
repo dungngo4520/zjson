@@ -111,7 +111,14 @@ const Parser = struct {
     line: usize,
     column: usize,
 
-    fn parseValue(self: *Parser) Error!Value {
+    // Estimate array/object size based on remaining JSON
+    fn estimateSize(self: *Parser) usize {
+        const remaining = self.input.len - self.pos;
+        // Conservative heuristic: smaller initial allocation
+        return @max(2, @min(32, remaining / 25));
+    }
+
+    inline fn parseValue(self: *Parser) Error!Value {
         self.skipWhitespaceAndComments();
         if (self.pos >= self.input.len) return Error.UnexpectedEnd;
 
@@ -127,7 +134,7 @@ const Parser = struct {
         };
     }
 
-    fn parseNull(self: *Parser) Error!Value {
+    inline fn parseNull(self: *Parser) Error!Value {
         if (self.pos + 4 > self.input.len or !std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "null")) {
             return Error.InvalidSyntax;
         }
@@ -135,7 +142,7 @@ const Parser = struct {
         return Value.Null;
     }
 
-    fn parseBool(self: *Parser) Error!Value {
+    inline fn parseBool(self: *Parser) Error!Value {
         if (self.pos + 4 <= self.input.len and std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "true")) {
             self.pos += 4;
             return Value{ .Bool = true };
@@ -194,6 +201,20 @@ const Parser = struct {
 
         var i = start;
         while (i < end) {
+            // Batch copy non-escape characters
+            const batch_start = i;
+            while (i < end and self.input[i] != '\\') {
+                i += 1;
+            }
+
+            if (i > batch_start) {
+                // Copy the batch of normal characters
+                try result.appendSlice(self.input[batch_start..i]);
+            }
+
+            if (i >= end) break;
+
+            // Handle escape sequence
             const c = self.input[i];
             if (c == '\\') {
                 i += 1;
@@ -218,16 +239,13 @@ const Parser = struct {
                     else => return Error.InvalidEscape,
                 }
                 i += 1;
-            } else {
-                try result.append(c);
-                i += 1;
             }
         }
 
         return Value{ .StringOwned = try result.toOwnedSlice() };
     }
 
-    fn parseNumber(self: *Parser) Error!Value {
+    inline fn parseNumber(self: *Parser) Error!Value {
         const start = self.pos;
 
         if (self.pos < self.input.len and self.input[self.pos] == '-') {
