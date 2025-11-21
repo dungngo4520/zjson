@@ -16,7 +16,7 @@ Zig 0.15 or newer.
 
 - Import everything with `const zjson = @import("zjson");`.
 - Parsing: `parseToArena(text, allocator, options)` returns a `ParseResult` (call `deinit` when done).
-- Parse errors: after `parseToArena` fails, call `lastParseErrorInfo()` to get byte offset, line, column, and a short context slice.
+- Parse errors: after `parseToArena` fails, call `lastParseErrorInfo()` for byte/line/column info and pass it to `writeParseErrorIndicator()` to show a caret on the offending line.
 - Marshaling: `marshal` and `marshalAlloc` turn Zig data into JSON.
 - Unmarshaling: `unmarshal(Type, value, allocator)` plus helpers like `getFieldAs` and `arrayAs`.
 - Quick value helpers: `toI64`, `toF64`, `toBool`, `toString`, `getObjectField`, `getArrayElement`, `arrayLen`, `objectLen`, `isNull`.
@@ -75,6 +75,17 @@ pub fn main() !void {
     defer allocator.free(person2.name);
     std.debug.print("Name: {s}, Age: {d}\n", .{ person2.name, person2.age });
 }
+```
+
+## Examples
+
+- `examples/parse.zig` parses a few basic values.
+- `examples/error_info.zig` shows how to call `lastParseErrorInfo()` and `writeParseErrorIndicator()` when parsing fails.
+
+Run any example with:
+
+```sh
+zig build examples && zig-out/examples/<example-name>
 ```
 
 ## Benchmarks

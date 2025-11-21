@@ -75,6 +75,7 @@ pub const ParseErrorInfo = struct {
     line: usize,
     column: usize,
     context: []const u8 = &.{},
+    context_offset: usize = 0,
 };
 
 pub const MarshalOptions = struct {

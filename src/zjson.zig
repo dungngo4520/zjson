@@ -12,12 +12,14 @@ pub const Pair = value.Pair;
 pub const MarshalOptions = value.MarshalOptions;
 pub const ParseOptions = value.ParseOptions;
 pub const ParseResult = value.ParseResult;
+pub const ParseErrorInfo = value.ParseErrorInfo;
 
 pub const marshal = marshaler.marshal;
 pub const marshalAlloc = marshaler.marshalAlloc;
 
 pub const parseToArena = parser.parseToArena;
 pub const lastParseErrorInfo = parser.lastParseErrorInfo;
+pub const writeParseErrorIndicator = parser.writeParseErrorIndicator;
 
 // Value conversion functions
 pub const toI64 = converter.toI64;

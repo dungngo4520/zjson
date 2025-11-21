@@ -183,6 +183,23 @@ test "parse error info" {
     }.run);
 }
 
+test "write parse error indicator" {
+    var buf = try std.ArrayList(u8).initCapacity(std.testing.allocator, 0);
+    defer buf.deinit(std.testing.allocator);
+
+    const info = zjson.ParseErrorInfo{
+        .byte_offset = 8,
+        .line = 2,
+        .column = 4,
+        .context = "good\nbad value\nrest",
+        .context_offset = 0,
+    };
+
+    const writer = buf.writer(std.testing.allocator);
+    try zjson.writeParseErrorIndicator(info, writer);
+    try std.testing.expectEqualStrings("line 2, column 4\nbad value\n   ^\n", buf.items);
+}
+
 const ValueTag = std.meta.Tag(zjson.Value);
 
 fn expectTag(value: zjson.Value, tag: ValueTag) !void {

@@ -6,11 +6,53 @@ pub const Value = value_mod.Value;
 pub const Pair = value_mod.Pair;
 pub const ParseOptions = value_mod.ParseOptions;
 pub const ParseResult = value_mod.ParseResult;
+pub const ParseErrorInfo = value_mod.ParseErrorInfo;
 
 threadlocal var last_parse_error_info: ?value_mod.ParseErrorInfo = null;
 
 pub fn lastParseErrorInfo() ?value_mod.ParseErrorInfo {
     return last_parse_error_info;
+}
+
+pub fn writeParseErrorIndicator(info: value_mod.ParseErrorInfo, writer: anytype) !void {
+    const ctx = info.context;
+    if (ctx.len == 0) {
+        try writer.print("(no context available)\n", .{});
+        return;
+    }
+
+    const caret_rel = if (info.byte_offset >= info.context_offset)
+        info.byte_offset - info.context_offset
+    else
+        0;
+
+    const before_slice = ctx[0..@min(caret_rel, ctx.len)];
+    const line_start = blk: {
+        if (std.mem.lastIndexOfScalar(u8, before_slice, '\n')) |idx|
+            break :blk idx + 1;
+        break :blk 0;
+    };
+
+    const line_end = blk: {
+        if (caret_rel < ctx.len) {
+            if (std.mem.indexOfScalarPos(u8, ctx, caret_rel, '\n')) |idx|
+                break :blk idx;
+        }
+        break :blk ctx.len;
+    };
+
+    const line_slice = ctx[line_start..line_end];
+    const caret_pos = if (caret_rel > line_start) caret_rel - line_start else 0;
+
+    try writer.print("line {d}, column {d}\n", .{ info.line, info.column });
+    try writer.print("{s}\n", .{line_slice});
+
+    var i: usize = 0;
+    while (i < caret_pos) : (i += 1) {
+        try writer.writeByte(' ');
+    }
+
+    try writer.writeAll("^\n");
 }
 
 pub fn parseToArena(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
@@ -84,22 +126,29 @@ const FastParser = struct {
     }
 
     inline fn fail(self: *FastParser, err: Error) Error {
+        const ctx = self.sliceContext();
         const info = value_mod.ParseErrorInfo{
             .byte_offset = self.pos,
             .line = self.line,
             .column = self.column,
-            .context = self.sliceContext(),
+            .context = ctx.slice,
+            .context_offset = ctx.start,
         };
         self.last_error_info = info;
         last_parse_error_info = info;
         return err;
     }
 
-    fn sliceContext(self: *FastParser) []const u8 {
+    const ContextSlice = struct {
+        slice: []const u8,
+        start: usize,
+    };
+
+    fn sliceContext(self: *FastParser) ContextSlice {
         const window: usize = 24;
         const start = if (self.pos > window) self.pos - window else 0;
         const end = @min(self.input.len, self.pos + window);
-        return self.input[start..end];
+        return ContextSlice{ .slice = self.input[start..end], .start = start };
     }
 
     inline fn parseNull(self: *FastParser) Error!Value {
