@@ -16,6 +16,7 @@ Zig 0.15 or newer.
 
 - Import everything with `const zjson = @import("zjson");`.
 - Parsing: `parseToArena(text, allocator, options)` returns a `ParseResult` (call `deinit` when done).
+- Parse errors: after `parseToArena` fails, call `lastParseErrorInfo()` to get byte offset, line, column, and a short context slice.
 - Marshaling: `marshal` and `marshalAlloc` turn Zig data into JSON.
 - Unmarshaling: `unmarshal(Type, value, allocator)` plus helpers like `getFieldAs` and `arrayAs`.
 - Quick value helpers: `toI64`, `toF64`, `toBool`, `toString`, `getObjectField`, `getArrayElement`, `arrayLen`, `objectLen`, `isNull`.

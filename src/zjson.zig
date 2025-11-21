@@ -17,6 +17,7 @@ pub const marshal = marshaler.marshal;
 pub const marshalAlloc = marshaler.marshalAlloc;
 
 pub const parseToArena = parser.parseToArena;
+pub const lastParseErrorInfo = parser.lastParseErrorInfo;
 
 // Value conversion functions
 pub const toI64 = converter.toI64;

@@ -168,6 +168,21 @@ test "parse errors" {
     }.run);
 }
 
+test "parse error info" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const bad = "{\n  \"a\": 1,\n  \"b\":\n}";
+            try std.testing.expectError(zjson.Error.InvalidSyntax, zjson.parseToArena(bad, allocator, .{}));
+            const info_opt = zjson.lastParseErrorInfo();
+            try std.testing.expect(info_opt != null);
+            const info = info_opt.?;
+            try std.testing.expectEqual(@as(usize, 4), info.line);
+            try std.testing.expectEqual(@as(usize, 1), info.column);
+            try std.testing.expect(info.context.len > 0);
+        }
+    }.run);
+}
+
 const ValueTag = std.meta.Tag(zjson.Value);
 
 fn expectTag(value: zjson.Value, tag: ValueTag) !void {

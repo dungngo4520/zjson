@@ -7,16 +7,26 @@ pub const Pair = value_mod.Pair;
 pub const ParseOptions = value_mod.ParseOptions;
 pub const ParseResult = value_mod.ParseResult;
 
-/// High-performance parser with arena allocator (NEW API)
+threadlocal var last_parse_error_info: ?value_mod.ParseErrorInfo = null;
+
+pub fn lastParseErrorInfo() ?value_mod.ParseErrorInfo {
+    return last_parse_error_info;
+}
+
 pub fn parseToArena(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
     var arena = std.heap.ArenaAllocator.init(base_allocator);
     errdefer arena.deinit();
 
+    last_parse_error_info = null;
+
     var parser = FastParser{
         .input = input,
         .pos = 0,
+        .line = 1,
+        .column = 1,
         .arena = arena.allocator(),
         .options = options,
+        .last_error_info = null,
     };
 
     const value = try parser.parseValue();
@@ -24,12 +34,13 @@ pub fn parseToArena(input: []const u8, base_allocator: std.mem.Allocator, option
     // Check for trailing content
     parser.skipWhitespace();
     if (parser.pos < parser.input.len) {
-        return Error.TrailingCharacters;
+        return parser.fail(Error.TrailingCharacters);
     }
 
     return ParseResult{
         .value = value,
         .arena = arena,
+        .error_info = null,
     };
 }
 
@@ -37,12 +48,15 @@ pub fn parseToArena(input: []const u8, base_allocator: std.mem.Allocator, option
 const FastParser = struct {
     input: []const u8,
     pos: usize,
+    line: usize,
+    column: usize,
     arena: std.mem.Allocator,
     options: ParseOptions,
+    last_error_info: ?value_mod.ParseErrorInfo = null,
 
     fn parseValue(self: *FastParser) Error!Value {
         self.skipWhitespace();
-        if (self.pos >= self.input.len) return Error.UnexpectedEnd;
+        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
         return switch (self.input[self.pos]) {
             'n' => self.parseNull(),
@@ -51,17 +65,50 @@ const FastParser = struct {
             '[' => self.parseArray(),
             '{' => self.parseObject(),
             '-', '0'...'9' => self.parseNumber(),
-            else => Error.InvalidSyntax,
+            else => self.fail(Error.InvalidSyntax),
         };
+    }
+
+    inline fn advance(self: *FastParser, count: usize) void {
+        var moved: usize = 0;
+        while (moved < count and self.pos < self.input.len) : (moved += 1) {
+            const c = self.input[self.pos];
+            self.pos += 1;
+            if (c == '\n') {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
+        }
+    }
+
+    inline fn fail(self: *FastParser, err: Error) Error {
+        const info = value_mod.ParseErrorInfo{
+            .byte_offset = self.pos,
+            .line = self.line,
+            .column = self.column,
+            .context = self.sliceContext(),
+        };
+        self.last_error_info = info;
+        last_parse_error_info = info;
+        return err;
+    }
+
+    fn sliceContext(self: *FastParser) []const u8 {
+        const window: usize = 24;
+        const start = if (self.pos > window) self.pos - window else 0;
+        const end = @min(self.input.len, self.pos + window);
+        return self.input[start..end];
     }
 
     inline fn parseNull(self: *FastParser) Error!Value {
         if (self.pos + 4 > self.input.len or
             !std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "null"))
         {
-            return Error.InvalidSyntax;
+            return self.fail(Error.InvalidSyntax);
         }
-        self.pos += 4;
+        self.advance(4);
         return Value.Null;
     }
 
@@ -69,15 +116,15 @@ const FastParser = struct {
         if (self.pos + 4 <= self.input.len and
             std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "true"))
         {
-            self.pos += 4;
+            self.advance(4);
             return Value{ .Bool = true };
         } else if (self.pos + 5 <= self.input.len and
             std.mem.eql(u8, self.input[self.pos .. self.pos + 5], "false"))
         {
-            self.pos += 5;
+            self.advance(5);
             return Value{ .Bool = false };
         }
-        return Error.InvalidSyntax;
+        return self.fail(Error.InvalidSyntax);
     }
 
     fn parseNumber(self: *FastParser) Error!Value {
@@ -85,18 +132,18 @@ const FastParser = struct {
 
         // Optional minus
         if (self.pos < self.input.len and self.input[self.pos] == '-') {
-            self.pos += 1;
+            self.advance(1);
         }
 
         if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
-            return Error.InvalidNumber;
+            return self.fail(Error.InvalidNumber);
         }
 
         // Fast number scanning
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
             if (std.ascii.isDigit(c) or c == '.' or c == 'e' or c == 'E' or c == '+' or c == '-') {
-                self.pos += 1;
+                self.advance(1);
             } else {
                 break;
             }
@@ -106,11 +153,13 @@ const FastParser = struct {
     }
 
     fn parseString(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '"') return Error.InvalidSyntax;
-        self.pos += 1;
+        if (self.input[self.pos] != '"') return self.fail(Error.InvalidSyntax);
+        self.advance(1);
 
         const start = self.pos;
-        const result = self.scanString() catch return Error.InvalidEscape;
+        const result = self.scanString() catch |err| switch (err) {
+            error.UnexpectedEnd => return self.fail(Error.UnexpectedEnd),
+        };
 
         if (result.has_escapes) {
             return Value{ .String = try self.unescapeString(start, result.end) };
@@ -133,20 +182,20 @@ const FastParser = struct {
 
             if (c == '"') {
                 const end = self.pos;
-                self.pos += 1;
+                self.advance(1);
                 return StringScanResult{ .end = end, .has_escapes = has_escapes };
             } else if (c == '\\') {
                 has_escapes = true;
-                self.pos += 1;
+                self.advance(1);
                 if (self.pos >= self.input.len) return error.UnexpectedEnd;
 
                 if (self.input[self.pos] == 'u') {
-                    self.pos += 5; // Skip u + 4 hex digits
+                    self.advance(5); // Skip u + 4 hex digits
                 } else {
-                    self.pos += 1;
+                    self.advance(1);
                 }
             } else {
-                self.pos += 1;
+                self.advance(1);
             }
         }
 
@@ -160,7 +209,7 @@ const FastParser = struct {
         while (i < end) {
             if (self.input[i] == '\\') {
                 i += 1;
-                if (i >= end) return Error.InvalidEscape;
+                if (i >= end) return self.fail(Error.InvalidEscape);
 
                 switch (self.input[i]) {
                     '"' => try result.append(self.arena, '"'),
@@ -173,13 +222,13 @@ const FastParser = struct {
                     't' => try result.append(self.arena, '\t'),
                     'u' => {
                         i += 1;
-                        if (i + 3 >= end) return Error.InvalidEscape;
+                        if (i + 3 >= end) return self.fail(Error.InvalidEscape);
                         const hex = self.input[i .. i + 4];
-                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch return Error.InvalidEscape;
+                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch return self.fail(Error.InvalidEscape);
                         try result.append(self.arena, @intCast(codepoint));
                         i += 3;
                     },
-                    else => return Error.InvalidEscape,
+                    else => return self.fail(Error.InvalidEscape),
                 }
                 i += 1;
             } else {
@@ -196,13 +245,13 @@ const FastParser = struct {
     }
 
     fn parseArray(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '[') return Error.InvalidSyntax;
-        self.pos += 1;
+        if (self.input[self.pos] != '[') return self.fail(Error.InvalidSyntax);
+        self.advance(1);
         self.skipWhitespace();
 
         // Empty array
         if (self.pos < self.input.len and self.input[self.pos] == ']') {
-            self.pos += 1;
+            self.advance(1);
             return Value{ .Array = &.{} };
         }
 
@@ -213,23 +262,23 @@ const FastParser = struct {
             try items.append(self.arena, item);
 
             self.skipWhitespace();
-            if (self.pos >= self.input.len) return Error.UnexpectedEnd;
+            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
             if (self.input[self.pos] == ']') {
-                self.pos += 1;
+                self.advance(1);
                 break;
             } else if (self.input[self.pos] == ',') {
-                self.pos += 1;
+                self.advance(1);
                 self.skipWhitespace();
                 // Handle trailing comma
                 if (self.options.allow_trailing_commas and
                     self.pos < self.input.len and self.input[self.pos] == ']')
                 {
-                    self.pos += 1;
+                    self.advance(1);
                     break;
                 }
             } else {
-                return Error.InvalidSyntax;
+                return self.fail(Error.InvalidSyntax);
             }
         }
 
@@ -237,13 +286,13 @@ const FastParser = struct {
     }
 
     fn parseObject(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '{') return Error.InvalidSyntax;
-        self.pos += 1;
+        if (self.input[self.pos] != '{') return self.fail(Error.InvalidSyntax);
+        self.advance(1);
         self.skipWhitespace();
 
         // Empty object
         if (self.pos < self.input.len and self.input[self.pos] == '}') {
-            self.pos += 1;
+            self.advance(1);
             return Value{ .Object = &.{} };
         }
 
@@ -251,41 +300,41 @@ const FastParser = struct {
 
         while (true) {
             self.skipWhitespace();
-            if (self.pos >= self.input.len) return Error.UnexpectedEnd;
+            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
             // Parse key
             const key_value = try self.parseString();
             const key = switch (key_value) {
                 .String => |s| s,
-                else => return Error.InvalidSyntax,
+                else => return self.fail(Error.InvalidSyntax),
             };
 
             self.skipWhitespace();
-            if (self.pos >= self.input.len or self.input[self.pos] != ':') return Error.InvalidSyntax;
-            self.pos += 1;
+            if (self.pos >= self.input.len or self.input[self.pos] != ':') return self.fail(Error.InvalidSyntax);
+            self.advance(1);
 
             // Parse value
             const value = try self.parseValue();
             try fields.append(self.arena, Pair{ .key = key, .value = value });
 
             self.skipWhitespace();
-            if (self.pos >= self.input.len) return Error.UnexpectedEnd;
+            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
             if (self.input[self.pos] == '}') {
-                self.pos += 1;
+                self.advance(1);
                 break;
             } else if (self.input[self.pos] == ',') {
-                self.pos += 1;
+                self.advance(1);
                 // Handle trailing comma
                 self.skipWhitespace();
                 if (self.options.allow_trailing_commas and
                     self.pos < self.input.len and self.input[self.pos] == '}')
                 {
-                    self.pos += 1;
+                    self.advance(1);
                     break;
                 }
             } else {
-                return Error.InvalidSyntax;
+                return self.fail(Error.InvalidSyntax);
             }
         }
 
@@ -296,24 +345,24 @@ const FastParser = struct {
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
             if (std.ascii.isWhitespace(c)) {
-                self.pos += 1;
+                self.advance(1);
             } else if (self.options.allow_comments and c == '/') {
                 if (self.pos + 1 < self.input.len) {
                     if (self.input[self.pos + 1] == '/') {
                         // Line comment - skip to end of line
-                        self.pos += 2;
+                        self.advance(2);
                         while (self.pos < self.input.len and self.input[self.pos] != '\n') {
-                            self.pos += 1;
+                            self.advance(1);
                         }
                     } else if (self.input[self.pos + 1] == '*') {
                         // Block comment - skip to */
-                        self.pos += 2;
+                        self.advance(2);
                         while (self.pos + 1 < self.input.len) {
                             if (self.input[self.pos] == '*' and self.input[self.pos + 1] == '/') {
-                                self.pos += 2;
+                                self.advance(2);
                                 break;
                             }
-                            self.pos += 1;
+                            self.advance(1);
                         }
                     } else {
                         break;

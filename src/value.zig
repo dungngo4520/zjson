@@ -31,6 +31,7 @@ pub const Pair = struct {
 pub const ParseResult = struct {
     value: Value,
     arena: std.heap.ArenaAllocator,
+    error_info: ?ParseErrorInfo = null,
 
     pub fn deinit(self: *ParseResult) void {
         self.arena.deinit();
@@ -67,6 +68,13 @@ pub const ParseResult = struct {
             },
         };
     }
+};
+
+pub const ParseErrorInfo = struct {
+    byte_offset: usize,
+    line: usize,
+    column: usize,
+    context: []const u8 = &.{},
 };
 
 pub const MarshalOptions = struct {
