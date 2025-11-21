@@ -6,7 +6,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const bad_json = 
+    const bad_json =
         \\{
         \\  "users": [
         \\    {"name": "Alice", "age": 30},
