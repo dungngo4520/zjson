@@ -360,9 +360,9 @@ const FastParser = struct {
                             continue;
                         }
 
-                            const scalar = try self.beginValue(&stack);
-                            if (scalar) |value| {
-                                try arr.items.append(self.arena, value);
+                        const scalar = try self.beginValue(&stack);
+                        if (scalar) |value| {
+                            try arr.items.append(self.arena, value);
                             arr.expect_value = false;
                             arr.seen_value = true;
                         }
