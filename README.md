@@ -50,9 +50,9 @@ pub fn main() !void {
         age: u32,
     };
 
-    // Stringify
+    // Marshal
     const person = Person{ .name = "Alice", .age = 30 };
-    const json = try zjson.stringifyAlloc(person, allocator, .{});
+    const json = try zjson.marshalAlloc(person, allocator, .{});
     defer allocator.free(json);
     std.debug.print("JSON: {s}\n", .{json});
 

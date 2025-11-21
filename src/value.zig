@@ -69,7 +69,7 @@ pub const ParseResult = struct {
     }
 };
 
-pub const StringifyOptions = struct {
+pub const MarshalOptions = struct {
     pretty: bool = false,
     indent: u32 = 2,
     omit_null: bool = true,

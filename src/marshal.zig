@@ -2,18 +2,18 @@ const std = @import("std");
 const value_mod = @import("value.zig");
 
 /// Compile-time JSON serialization with options
-/// Usage: stringify(value, options)
-pub fn stringify(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
-    return comptime _stringifyGeneric(value, options, true, {});
+/// Usage: marshal(value, options)
+pub fn marshal(comptime value: anytype, comptime options: value_mod.MarshalOptions) []const u8 {
+    return comptime _marshalGeneric(value, options, true, {});
 }
 
 /// Runtime JSON serialization with options
-pub fn stringifyAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
-    return _stringifyGeneric(value, options, false, allocator);
+pub fn marshalAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    return _marshalGeneric(value, options, false, allocator);
 }
 
-// Generic stringify handler (works for both compile-time and runtime)
-fn _stringifyGeneric(value: anytype, options: value_mod.StringifyOptions, comptime is_comptime: bool, allocator: if (is_comptime) void else std.mem.Allocator) if (is_comptime) []const u8 else std.mem.Allocator.Error![]u8 {
+// Generic marshal handler (works for both compile-time and runtime)
+fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime is_comptime: bool, allocator: if (is_comptime) void else std.mem.Allocator) if (is_comptime) []const u8 else std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
@@ -45,23 +45,23 @@ fn _stringifyGeneric(value: anytype, options: value_mod.StringifyOptions, compti
         },
         .optional => {
             if (value) |inner| {
-                return _stringifyGeneric(inner, options, is_comptime, if (is_comptime) {} else allocator);
+                return _marshalGeneric(inner, options, is_comptime, if (is_comptime) {} else allocator);
             } else {
                 if (is_comptime) return "null" else return allocator.dupe(u8, "null");
             }
         },
         .@"struct" => {
             if (is_comptime) {
-                return _stringifyStructComptime(value, options);
+                return _marshalStructComptime(value, options);
             } else {
-                return _stringifyStructAlloc(value, allocator, options);
+                return _marshalStructAlloc(value, allocator, options);
             }
         },
         .array, .vector => {
             if (is_comptime) {
-                return _stringifyArrayComptime(value, options);
+                return _marshalArrayComptime(value, options);
             } else {
-                return _stringifyArrayAlloc(value, allocator, options);
+                return _marshalArrayAlloc(value, allocator, options);
             }
         },
         .pointer => {
@@ -75,21 +75,21 @@ fn _stringifyGeneric(value: anytype, options: value_mod.StringifyOptions, compti
                 }
             } else if (ptr_info.size == .slice or @typeInfo(ptr_info.child) == .array) {
                 if (is_comptime) {
-                    return _stringifyArrayComptime(value, options);
+                    return _marshalArrayComptime(value, options);
                 } else {
-                    return _stringifyArrayAlloc(value, allocator, options);
+                    return _marshalArrayAlloc(value, allocator, options);
                 }
             } else {
-                @compileError("zjson: unsupported pointer type for stringify: " ++ @typeName(T));
+                @compileError("zjson: unsupported pointer type for marshal: " ++ @typeName(T));
             }
         },
-        else => @compileError("zjson: unsupported type for stringify: " ++ @typeName(T)),
+        else => @compileError("zjson: unsupported type for marshal: " ++ @typeName(T)),
     }
 }
 
-fn _stringifyStructComptime(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
+fn _marshalStructComptime(comptime value: anytype, comptime options: value_mod.MarshalOptions) []const u8 {
     if (options.sort_keys) {
-        @compileError("sort_keys is not supported in compile-time stringify(). Use stringifyAlloc() for runtime sorting of keys.");
+        @compileError("sort_keys is not supported in compile-time marshal(). Use marshalAlloc() for runtime sorting of keys.");
     }
 
     const T = @TypeOf(value);
@@ -101,7 +101,7 @@ fn _stringifyStructComptime(comptime value: anytype, comptime options: value_mod
     inline for (fields) |field| {
         const field_value = @field(value, field.name);
         if (!_shouldSkipFieldChecked(field.type, field_value, options)) {
-            const field_json = _stringifyGeneric(field_value, options, true, {});
+            const field_json = _marshalGeneric(field_value, options, true, {});
             result = result ++ (if (first) "" else ",") ++ _formatFieldHelper(field.name, field_json, options, true);
             first = false;
         }
@@ -110,7 +110,7 @@ fn _stringifyStructComptime(comptime value: anytype, comptime options: value_mod
     return result ++ (if (options.pretty and !first) "\n" else "") ++ "}";
 }
 
-fn _formatFieldHelper(comptime key: []const u8, comptime value: []const u8, comptime options: value_mod.StringifyOptions, comptime is_comptime: bool) if (is_comptime) []const u8 else noreturn {
+fn _formatFieldHelper(comptime key: []const u8, comptime value: []const u8, comptime options: value_mod.MarshalOptions, comptime is_comptime: bool) if (is_comptime) []const u8 else noreturn {
     if (options.pretty) {
         comptime var result: []const u8 = "\n";
         inline for (0..options.indent) |_| {
@@ -127,20 +127,20 @@ fn _shouldSkipField(comptime T: type, comptime value_or_type: anytype) bool {
     return @typeInfo(T) == .optional and value_or_type == null;
 }
 
-fn _shouldSkipFieldChecked(comptime T: type, comptime value_or_type: anytype, options: value_mod.StringifyOptions) bool {
+fn _shouldSkipFieldChecked(comptime T: type, comptime value_or_type: anytype, options: value_mod.MarshalOptions) bool {
     return options.omit_null and _shouldSkipField(T, value_or_type);
 }
 
-fn _shouldSkipFieldCheckedRuntime(T: type, field_value: anytype, options: value_mod.StringifyOptions) bool {
+fn _shouldSkipFieldCheckedRuntime(T: type, field_value: anytype, options: value_mod.MarshalOptions) bool {
     return options.omit_null and @typeInfo(T) == .optional and field_value == null;
 }
 
-fn _stringifyArrayComptime(comptime value: anytype, comptime options: value_mod.StringifyOptions) []const u8 {
+fn _marshalArrayComptime(comptime value: anytype, comptime options: value_mod.MarshalOptions) []const u8 {
     comptime var result: []const u8 = "[";
     comptime var first = true;
 
     inline for (value) |item| {
-        const item_json = _stringifyGeneric(item, options, true, {});
+        const item_json = _marshalGeneric(item, options, true, {});
         result = result ++ (if (first) "" else ",") ++ _formatItemComptime(item_json, options);
         first = false;
     }
@@ -148,7 +148,7 @@ fn _stringifyArrayComptime(comptime value: anytype, comptime options: value_mod.
     return result ++ (if (options.pretty and !first) "\n" else "") ++ "]";
 }
 
-fn _formatItemComptime(comptime value: []const u8, comptime options: value_mod.StringifyOptions) []const u8 {
+fn _formatItemComptime(comptime value: []const u8, comptime options: value_mod.MarshalOptions) []const u8 {
     if (options.pretty) {
         comptime var indent: []const u8 = "\n";
         inline for (0..options.indent) |_| {
@@ -183,7 +183,7 @@ fn _escapeCharComptime(comptime c: u8) []const u8 {
     };
 }
 
-fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
+fn _marshalStructAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
     const fields = @typeInfo(T).@"struct".fields;
 
@@ -211,7 +211,7 @@ fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: 
                 if (std.mem.eql(u8, field.name, field_name)) {
                     const field_value = @field(value, field.name);
                     if (!_shouldSkipFieldCheckedRuntime(@TypeOf(field_value), field_value, options)) {
-                        const val_str = try _stringifyGeneric(field_value, options, false, allocator);
+                        const val_str = try _marshalGeneric(field_value, options, false, allocator);
                         defer allocator.free(val_str);
                         try _appendFieldAlloc(&buffer, field.name, val_str, allocator, options, !first);
                         first = false;
@@ -224,7 +224,7 @@ fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: 
         inline for (fields) |field| {
             const field_value = @field(value, field.name);
             if (!_shouldSkipFieldCheckedRuntime(@TypeOf(field_value), field_value, options)) {
-                const val_str = try _stringifyGeneric(field_value, options, false, allocator);
+                const val_str = try _marshalGeneric(field_value, options, false, allocator);
                 defer allocator.free(val_str);
                 try _appendFieldAlloc(&buffer, field.name, val_str, allocator, options, !first);
                 first = false;
@@ -239,11 +239,11 @@ fn _stringifyStructAlloc(value: anytype, allocator: std.mem.Allocator, options: 
     return buffer.toOwnedSlice();
 }
 
-fn _shouldSkipFieldRuntime(comptime T: type, field_value: anytype, options: value_mod.StringifyOptions) bool {
+fn _shouldSkipFieldRuntime(comptime T: type, field_value: anytype, options: value_mod.MarshalOptions) bool {
     return options.omit_null and @typeInfo(T) == .optional and field_value == null;
 }
 
-fn _appendFieldAlloc(buffer: *std.array_list.Managed(u8), key: []const u8, value: []const u8, allocator: std.mem.Allocator, options: value_mod.StringifyOptions, need_comma: bool) std.mem.Allocator.Error!void {
+fn _appendFieldAlloc(buffer: *std.array_list.Managed(u8), key: []const u8, value: []const u8, allocator: std.mem.Allocator, options: value_mod.MarshalOptions, need_comma: bool) std.mem.Allocator.Error!void {
     if (need_comma) {
         try buffer.append(',');
     }
@@ -265,13 +265,13 @@ fn _appendFieldAlloc(buffer: *std.array_list.Managed(u8), key: []const u8, value
     try buffer.appendSlice(value);
 }
 
-fn _appendIndentAlloc(buffer: *std.array_list.Managed(u8), options: value_mod.StringifyOptions) std.mem.Allocator.Error!void {
+fn _appendIndentAlloc(buffer: *std.array_list.Managed(u8), options: value_mod.MarshalOptions) std.mem.Allocator.Error!void {
     for (0..options.indent) |_| {
         try buffer.append(' ');
     }
 }
 
-fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.StringifyOptions) std.mem.Allocator.Error![]u8 {
+fn _marshalArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
     var buffer = std.array_list.Managed(u8).init(allocator);
     errdefer buffer.deinit();
 
@@ -279,7 +279,7 @@ fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: v
     var first = true;
 
     for (value) |item| {
-        const item_str = try _stringifyGeneric(item, options, false, allocator);
+        const item_str = try _marshalGeneric(item, options, false, allocator);
         defer allocator.free(item_str);
         try _appendItemAlloc(&buffer, item_str, options, !first);
         first = false;
@@ -292,7 +292,7 @@ fn _stringifyArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: v
     return buffer.toOwnedSlice();
 }
 
-fn _appendItemAlloc(buffer: *std.array_list.Managed(u8), value: []const u8, options: value_mod.StringifyOptions, need_comma: bool) std.mem.Allocator.Error!void {
+fn _appendItemAlloc(buffer: *std.array_list.Managed(u8), value: []const u8, options: value_mod.MarshalOptions, need_comma: bool) std.mem.Allocator.Error!void {
     if (need_comma) {
         try buffer.append(',');
     }

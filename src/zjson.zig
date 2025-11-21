@@ -1,46 +1,46 @@
-const val = @import("value.zig");
-const str = @import("stringify.zig");
-const prs = @import("parse.zig");
-const conv = @import("convert.zig");
-const unmarshal_mod = @import("unmarshal.zig");
-const custom_mod = @import("custom.zig");
+const value = @import("value.zig");
+const marshaler = @import("marshal.zig");
+const parser = @import("parse.zig");
+const converter = @import("convert.zig");
+const unmarshaller = @import("unmarshal.zig");
+const custom = @import("custom.zig");
 
 // Re-export all public APIs
-pub const Error = val.Error;
-pub const Value = val.Value;
-pub const Pair = val.Pair;
-pub const StringifyOptions = val.StringifyOptions;
-pub const ParseOptions = val.ParseOptions;
-pub const ParseResult = val.ParseResult;
+pub const Error = value.Error;
+pub const Value = value.Value;
+pub const Pair = value.Pair;
+pub const MarshalOptions = value.MarshalOptions;
+pub const ParseOptions = value.ParseOptions;
+pub const ParseResult = value.ParseResult;
 
-pub const stringify = str.stringify;
-pub const stringifyAlloc = str.stringifyAlloc;
+pub const marshal = marshaler.marshal;
+pub const marshalAlloc = marshaler.marshalAlloc;
 
-pub const parseToArena = prs.parseToArena;
+pub const parseToArena = parser.parseToArena;
 
 // Value conversion functions
-pub const toI64 = conv.toI64;
-pub const toI32 = conv.toI32;
-pub const toU64 = conv.toU64;
-pub const toU32 = conv.toU32;
-pub const toF64 = conv.toF64;
-pub const toF32 = conv.toF32;
-pub const toString = conv.toString;
-pub const toBool = conv.toBool;
-pub const isNull = conv.isNull;
-pub const arrayLen = conv.arrayLen;
-pub const objectLen = conv.objectLen;
-pub const getObjectField = conv.getObjectField;
-pub const getArrayElement = conv.getArrayElement;
-pub const getNumberString = conv.getNumberString;
+pub const toI64 = converter.toI64;
+pub const toI32 = converter.toI32;
+pub const toU64 = converter.toU64;
+pub const toU32 = converter.toU32;
+pub const toF64 = converter.toF64;
+pub const toF32 = converter.toF32;
+pub const toString = converter.toString;
+pub const toBool = converter.toBool;
+pub const isNull = converter.isNull;
+pub const arrayLen = converter.arrayLen;
+pub const objectLen = converter.objectLen;
+pub const getObjectField = converter.getObjectField;
+pub const getArrayElement = converter.getArrayElement;
+pub const getNumberString = converter.getNumberString;
 
 // Unmarshal functions for deserializing into typed structs
-pub const unmarshal = unmarshal_mod.unmarshal;
-pub const getFieldAs = unmarshal_mod.getFieldAs;
-pub const arrayAs = unmarshal_mod.arrayAs;
+pub const unmarshal = unmarshaller.unmarshal;
+pub const getFieldAs = unmarshaller.getFieldAs;
+pub const arrayAs = unmarshaller.arrayAs;
 
 // Custom marshaler support
-pub const hasCustomMarshal = custom_mod.hasCustomMarshal;
-pub const hasCustomUnmarshal = custom_mod.hasCustomUnmarshal;
-pub const stringifyWithCustom = custom_mod.stringifyWithCustom;
-pub const unmarshalWithCustom = custom_mod.unmarshalWithCustom;
+pub const hasCustomMarshal = custom.hasCustomMarshal;
+pub const hasCustomUnmarshal = custom.hasCustomUnmarshal;
+pub const marshalWithCustom = custom.marshalWithCustom;
+pub const unmarshalWithCustom = custom.unmarshalWithCustom;

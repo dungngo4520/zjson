@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed `stringify()` to `marshal()` and `stringifyAlloc()` to `marshalAlloc()` for better API coherence with `unmarshal()`
+- Renamed `StringifyOptions` to `MarshalOptions`
+- Renamed `stringifyWithCustom()` to `marshalWithCustom()`
+
 ### Added
 
 - Initial public release of zjson
