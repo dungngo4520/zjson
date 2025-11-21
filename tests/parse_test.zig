@@ -1,133 +1,169 @@
 const std = @import("std");
 const zjson = @import("zjson");
+const test_utils = @import("test_utils.zig");
 
-test "parse basic types" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+test "parse scalars" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("null", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Null);
+                }
+            }.check);
 
-    {
-        const result = try zjson.parse("null", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Null);
-    }
+            const bool_cases = [_]struct { json: []const u8, expected: bool }{
+                .{ .json = "true", .expected = true },
+                .{ .json = "false", .expected = false },
+            };
+            inline for (bool_cases) |case| {
+                const expected = case.expected;
+                try test_utils.withParsed(case.json, allocator, .{}, struct {
+                    fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                        _ = arena;
+                        try expectBool(value, expected);
+                    }
+                }.check);
+            }
 
-    {
-        const result = try zjson.parse("true", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Bool and result.Bool == true);
-    }
+            try test_utils.withParsed("42", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectNumber(value, "42");
+                }
+            }.check);
 
-    {
-        const result = try zjson.parse("false", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Bool and result.Bool == false);
-    }
-
-    {
-        const result = try zjson.parse("42", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Number);
-        try std.testing.expectEqualStrings("42", result.Number);
-    }
-
-    {
-        const result = try zjson.parse("\"hello\"", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .String);
-        try std.testing.expectEqualStrings("hello", result.String);
-    }
+            try test_utils.withParsed("\"hello\"", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectString(value, "hello");
+                }
+            }.check);
+        }
+    }.run);
 }
 
 test "parse arrays" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("[1,2,3]", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Array);
+                    try std.testing.expectEqual(@as(usize, 3), value.Array.len);
+                    try std.testing.expectEqualStrings("1", value.Array[0].Number);
+                    try std.testing.expectEqualStrings("2", value.Array[1].Number);
+                    try std.testing.expectEqualStrings("3", value.Array[2].Number);
+                }
+            }.check);
 
-    {
-        const result = try zjson.parse("[1,2,3]", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Array);
-        try std.testing.expect(result.Array.len == 3);
-        try std.testing.expectEqualStrings("1", result.Array[0].Number);
-        try std.testing.expectEqualStrings("2", result.Array[1].Number);
-        try std.testing.expectEqualStrings("3", result.Array[2].Number);
-    }
-
-    {
-        const result = try zjson.parse("[]", allocator, .{});
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result.Array.len == 0);
-    }
+            try test_utils.withParsed("[]", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Array);
+                    try std.testing.expectEqual(@as(usize, 0), value.Array.len);
+                }
+            }.check);
+        }
+    }.run);
 }
 
 test "parse objects" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const result = try zjson.parse("{\"name\":\"Alice\",\"age\":30}", allocator, .{});
-    defer zjson.freeValue(result, allocator);
-    try std.testing.expect(result == .Object);
-    try std.testing.expect(result.Object.len == 2);
-    try std.testing.expectEqualStrings("name", result.Object[0].key);
-    try std.testing.expectEqualStrings("Alice", result.Object[0].value.String);
-    try std.testing.expectEqualStrings("age", result.Object[1].key);
-    try std.testing.expectEqualStrings("30", result.Object[1].value.Number);
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("{\"name\":\"Alice\",\"age\":30}", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Object);
+                    try std.testing.expectEqual(@as(usize, 2), value.Object.len);
+                    try std.testing.expectEqualStrings("name", value.Object[0].key);
+                    try std.testing.expectEqualStrings("Alice", value.Object[0].value.String);
+                    try std.testing.expectEqualStrings("age", value.Object[1].key);
+                    try std.testing.expectEqualStrings("30", value.Object[1].value.Number);
+                }
+            }.check);
+        }
+    }.run);
 }
 
-test "parse complex nested structure" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const json = "{\"users\":[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]}";
-    const result = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(result, allocator);
-    try std.testing.expect(result == .Object);
-    try std.testing.expectEqualStrings("users", result.Object[0].key);
-    try std.testing.expect(result.Object[0].value == .Array);
-    try std.testing.expect(result.Object[0].value.Array.len == 2);
+test "parse nested structures" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const json = "{\"users\":[{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]}";
+            try test_utils.withParsed(json, allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Object);
+                    try std.testing.expectEqualStrings("users", value.Object[0].key);
+                    try expectTag(value.Object[0].value, .Array);
+                    try std.testing.expectEqual(@as(usize, 2), value.Object[0].value.Array.len);
+                }
+            }.check);
+        }
+    }.run);
 }
 
 test "parse with trailing commas" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("[1,2,3,]", allocator, .{ .allow_trailing_commas = true }, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Array);
+                    try std.testing.expectEqual(@as(usize, 3), value.Array.len);
+                }
+            }.check);
 
-    {
-        const result = try zjson.parse("[1,2,3,]", allocator, .{ .allow_trailing_commas = true });
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Array);
-        try std.testing.expect(result.Array.len == 3);
-    }
-
-    {
-        const result = try zjson.parse("{\"a\":1,\"b\":2,}", allocator, .{ .allow_trailing_commas = true });
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Object);
-        try std.testing.expect(result.Object.len == 2);
-    }
+            try test_utils.withParsed("{\"a\":1,\"b\":2,}", allocator, .{ .allow_trailing_commas = true }, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Object);
+                    try std.testing.expectEqual(@as(usize, 2), value.Object.len);
+                }
+            }.check);
+        }
+    }.run);
 }
 
 test "parse with comments" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("[1, /* comment */ 2, 3]", allocator, .{ .allow_comments = true }, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Array);
+                    try std.testing.expectEqual(@as(usize, 3), value.Array.len);
+                }
+            }.check);
 
-    {
-        const json = "[1, /* comment */ 2, 3]";
-        const result = try zjson.parse(json, allocator, .{ .allow_comments = true });
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Array);
-        try std.testing.expect(result.Array.len == 3);
-    }
+            try test_utils.withParsed("// line comment\n{\"a\": 1}", allocator, .{ .allow_comments = true }, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    _ = arena;
+                    try expectTag(value, .Object);
+                    try std.testing.expectEqual(@as(usize, 1), value.Object.len);
+                }
+            }.check);
+        }
+    }.run);
+}
 
-    {
-        const json = "// line comment\n{\"a\": 1}";
-        const result = try zjson.parse(json, allocator, .{ .allow_comments = true });
-        defer zjson.freeValue(result, allocator);
-        try std.testing.expect(result == .Object);
-        try std.testing.expect(result.Object.len == 1);
-    }
+const ValueTag = std.meta.Tag(zjson.Value);
+
+fn expectTag(value: zjson.Value, tag: ValueTag) !void {
+    try std.testing.expect(value == tag);
+}
+
+fn expectBool(value: zjson.Value, expected: bool) !void {
+    try expectTag(value, .Bool);
+    try std.testing.expectEqual(expected, value.Bool);
+}
+
+fn expectNumber(value: zjson.Value, expected: []const u8) !void {
+    try expectTag(value, .Number);
+    try std.testing.expectEqualStrings(expected, value.Number);
+}
+
+fn expectString(value: zjson.Value, expected: []const u8) !void {
+    try expectTag(value, .String);
+    try std.testing.expectEqualStrings(expected, value.String);
 }

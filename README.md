@@ -11,7 +11,6 @@ Zig 0.15 or newer.
 - Compile-time JSON serialization
 - Runtime JSON serialization and parsing
 - Generic struct unmarshaling
-- Error position tracking
 
 ## Installation
 
@@ -57,12 +56,12 @@ pub fn main() !void {
     defer allocator.free(json);
     std.debug.print("JSON: {s}\n", .{json});
 
-    // Parse
-    const parsed = try zjson.parse("{\"name\":\"Bob\",\"age\":25}", allocator, .{});
-    defer zjson.freeValue(parsed, allocator);
+    // Parse directly into an arena-backed tree
+    var parsed = try zjson.parseToArena("{\"name\":\"Bob\",\"age\":25}", allocator, .{});
+    defer parsed.deinit();
 
     // Unmarshal into struct
-    const person2 = try zjson.unmarshal(Person, parsed, allocator);
+    const person2 = try zjson.unmarshal(Person, parsed.value, allocator);
     defer allocator.free(person2.name);
     std.debug.print("Name: {s}, Age: {d}\n", .{ person2.name, person2.age });
 }

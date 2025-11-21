@@ -1,19 +1,17 @@
 const std = @import("std");
 const zjson = @import("zjson");
 
+const Profile = struct {
+    name: []const u8,
+    age: u32,
+    email: ?[]const u8,
+};
+
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    // Define a Person struct
-    const Person = struct {
-        name: []const u8,
-        age: u32,
-        email: ?[]const u8,
-    };
-
-    // Parse JSON into a Value
     const json =
         \\{
         \\  "name": "Alice",
@@ -21,14 +19,14 @@ pub fn main() !void {
         \\  "email": "alice@example.com"
         \\}
     ;
-    const value = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(value, allocator);
 
-    // Unmarshal Value into Person struct
-    const person = try zjson.unmarshal(Person, value, allocator);
-    defer allocator.free(person.name);
-    if (person.email) |email| {
-        defer allocator.free(email);
-        std.debug.print("Name: {s}, Age: {d}, Email: {s}\n", .{ person.name, person.age, email });
-    }
+    var parsed = try zjson.parseToArena(json, allocator, .{});
+    defer parsed.deinit();
+
+    const profile = try zjson.unmarshal(Profile, parsed.value, allocator);
+    defer allocator.free(profile.name);
+    defer if (profile.email) |email| allocator.free(email);
+
+    const email_text = profile.email orelse "(none)";
+    std.debug.print("{s} ({d}) -> {s}\n", .{ profile.name, profile.age, email_text });
 }

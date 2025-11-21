@@ -23,16 +23,24 @@ fn benchmark(allocator: std.mem.Allocator, count: usize, iterations: usize) !voi
     try json_buf.appendSlice(allocator, "]");
 
     const json = json_buf.items;
+    const result = try compare(json, allocator, iterations);
+    const speedup = @as(f64, @floatFromInt(result.stdlib)) / @as(f64, @floatFromInt(result.zjson));
+    std.debug.print("{d} strings: zjson={d}µs std={d}µs speedup={d:.2}x\n", .{ count, result.zjson, result.stdlib, speedup });
+}
 
-    // zjson benchmark
+const BenchmarkResult = struct {
+    zjson: u64,
+    stdlib: u64,
+};
+
+fn compare(json: []const u8, allocator: std.mem.Allocator, iterations: usize) !BenchmarkResult {
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        const value = try zjson.parse(json, allocator, .{});
-        zjson.freeValue(value, allocator);
+        var parsed = try zjson.parseToArena(json, allocator, .{});
+        parsed.deinit();
     }
     const zjson_time = timer.read() / iterations / 1000;
 
-    // std.json benchmark
     timer = try std.time.Timer.start();
     for (0..iterations) |_| {
         var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json, .{});
@@ -40,6 +48,5 @@ fn benchmark(allocator: std.mem.Allocator, count: usize, iterations: usize) !voi
     }
     const std_time = timer.read() / iterations / 1000;
 
-    const speedup = @as(f64, @floatFromInt(std_time)) / @as(f64, @floatFromInt(zjson_time));
-    std.debug.print("{d} strings: zjson={d}µs std={d}µs speedup={d:.2}x\n", .{ count, zjson_time, std_time, speedup });
+    return BenchmarkResult{ .zjson = zjson_time, .stdlib = std_time };
 }

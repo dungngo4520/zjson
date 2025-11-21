@@ -11,15 +11,12 @@ pub const Value = val.Value;
 pub const Pair = val.Pair;
 pub const StringifyOptions = val.StringifyOptions;
 pub const ParseOptions = val.ParseOptions;
-pub const ParseError = val.ParseError;
+pub const ParseResult = val.ParseResult;
 
 pub const stringify = str.stringify;
 pub const stringifyAlloc = str.stringifyAlloc;
 
-pub const parse = prs.parse;
-pub const parseWithError = prs.parseWithError;
-pub const getLastParseError = prs.getLastParseError;
-pub const freeValue = prs.freeValue;
+pub const parseToArena = prs.parseToArena;
 
 // Value conversion functions
 pub const toI64 = conv.toI64;

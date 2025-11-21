@@ -1,5 +1,6 @@
 const std = @import("std");
 const zjson = @import("zjson");
+const test_utils = @import("test_utils.zig");
 
 test "stringify compile-time basic types" {
     try std.testing.expectEqualStrings("true", zjson.stringify(true, .{}));
@@ -45,96 +46,52 @@ test "stringify compile-time arrays" {
     try std.testing.expectEqualStrings("[1,2,3]", zjson.stringify(&arr, .{}));
 }
 
-test "stringify runtime bool" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+test "stringify runtime values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const bool_json = try zjson.stringifyAlloc(true, allocator, .{});
+            defer allocator.free(bool_json);
+            try std.testing.expectEqualSlices(u8, "true", bool_json);
 
-    const result = try zjson.stringifyAlloc(true, allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "true", result);
-}
+            const null_json = try zjson.stringifyAlloc(@as(?u32, null), allocator, .{});
+            defer allocator.free(null_json);
+            try std.testing.expectEqualSlices(u8, "null", null_json);
 
-test "stringify runtime null" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+            const num_json = try zjson.stringifyAlloc(@as(i32, 42), allocator, .{});
+            defer allocator.free(num_json);
+            try std.testing.expectEqualSlices(u8, "42", num_json);
 
-    const result = try zjson.stringifyAlloc(@as(?u32, null), allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "null", result);
-}
+            const str_json = try zjson.stringifyAlloc("hello", allocator, .{});
+            defer allocator.free(str_json);
+            try std.testing.expectEqualSlices(u8, "\"hello\"", str_json);
 
-test "stringify runtime number" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+            const nums = [_]i32{ 1, 2, 3 };
+            const array_json = try zjson.stringifyAlloc(&nums, allocator, .{});
+            defer allocator.free(array_json);
+            try std.testing.expectEqualSlices(u8, "[1,2,3]", array_json);
 
-    const result = try zjson.stringifyAlloc(@as(i32, 42), allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "42", result);
-}
+            const Person = struct {
+                name: []const u8,
+                age: u32,
+            };
+            const person = Person{ .name = "Alice", .age = 30 };
+            const person_json = try zjson.stringifyAlloc(person, allocator, .{});
+            defer allocator.free(person_json);
+            try std.testing.expectEqualSlices(u8, "{\"name\":\"Alice\",\"age\":30}", person_json);
 
-test "stringify runtime string" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+            const User = struct {
+                name: []const u8,
+                email: ?[]const u8 = null,
+            };
+            const user = User{ .name = "Bob" };
+            const user_json = try zjson.stringifyAlloc(user, allocator, .{});
+            defer allocator.free(user_json);
+            try std.testing.expectEqualSlices(u8, "{\"name\":\"Bob\"}", user_json);
 
-    const result = try zjson.stringifyAlloc("hello", allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "\"hello\"", result);
-}
-
-test "stringify runtime array" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const nums = [_]i32{ 1, 2, 3 };
-    const result = try zjson.stringifyAlloc(&nums, allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "[1,2,3]", result);
-}
-
-test "stringify runtime struct" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const Person = struct {
-        name: []const u8,
-        age: u32,
-    };
-
-    const person = Person{ .name = "Alice", .age = 30 };
-    const result = try zjson.stringifyAlloc(person, allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "{\"name\":\"Alice\",\"age\":30}", result);
-}
-
-test "stringify runtime struct with optional fields" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const User = struct {
-        name: []const u8,
-        email: ?[]const u8 = null,
-    };
-
-    const user = User{ .name = "Bob" };
-    const result = try zjson.stringifyAlloc(user, allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "{\"name\":\"Bob\"}", result);
-}
-
-test "stringify runtime enum" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const Status = enum { active, inactive };
-    const result = try zjson.stringifyAlloc(Status.active, allocator, .{});
-    defer allocator.free(result);
-    try std.testing.expectEqualSlices(u8, "\"active\"", result);
+            const Status = enum { active, inactive };
+            const enum_json = try zjson.stringifyAlloc(Status.active, allocator, .{});
+            defer allocator.free(enum_json);
+            try std.testing.expectEqualSlices(u8, "\"active\"", enum_json);
+        }
+    }.run);
 }

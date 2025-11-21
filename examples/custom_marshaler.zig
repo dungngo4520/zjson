@@ -1,7 +1,6 @@
 const std = @import("std");
 const zjson = @import("zjson");
 
-// Define a Color type with custom marshal/unmarshal
 const Color = struct {
     r: u8,
     g: u8,
@@ -30,22 +29,16 @@ const Color = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    // Parse hex color
-    const json = "\"#FF5733\"";
-    const value = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(value, allocator);
+    var parsed = try zjson.parseToArena("\"#FF5733\"", allocator, .{});
+    defer parsed.deinit();
 
-    // Use custom unmarshal
-    const color = try zjson.unmarshalWithCustom(Color, value, allocator);
-    std.debug.print("Color: R={d}, G={d}, B={d}\n", .{ color.r, color.g, color.b });
+    const color = try zjson.unmarshalWithCustom(Color, parsed.value, allocator);
+    std.debug.print("rgb=({d},{d},{d})\n", .{ color.r, color.g, color.b });
 
-    // Check if type has custom methods
-    const has_marshal = comptime zjson.hasCustomMarshal(Color);
-    const has_unmarshal = comptime zjson.hasCustomUnmarshal(Color);
-    std.debug.print("Has custom marshal: {}\n", .{has_marshal});
-    std.debug.print("Has custom unmarshal: {}\n", .{has_unmarshal});
+    std.debug.print("custom marshal? {}\n", .{comptime zjson.hasCustomMarshal(Color)});
+    std.debug.print("custom unmarshal? {}\n", .{comptime zjson.hasCustomUnmarshal(Color)});
 }

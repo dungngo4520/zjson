@@ -1,7 +1,7 @@
 const std = @import("std");
 const zjson = @import("zjson");
+const test_utils = @import("test_utils.zig");
 
-// Define a Color type with custom marshal/unmarshal for hex colors
 const Color = struct {
     r: u8,
     g: u8,
@@ -29,13 +29,11 @@ const Color = struct {
     }
 };
 
-// Define a Point type without custom marshaling
 const Point = struct {
     x: i32,
     y: i32,
 };
 
-// Define a UUID type with custom marshal/unmarshal
 const UUID = struct {
     data: [16]u8,
 
@@ -73,43 +71,31 @@ test "detect custom unmarshal method" {
     try std.testing.expect(has_custom);
 }
 
-test "unmarshal hex color" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+test "unmarshal hex colors" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var single = try zjson.parseToArena("\"#FF5733\"", allocator, .{});
+            defer single.deinit();
+            const color = try zjson.unmarshalWithCustom(Color, single.value, allocator);
+            try std.testing.expect(color.r == 0xFF and color.g == 0x57 and color.b == 0x33);
 
-    const json = "\"#FF5733\"";
-    const value = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(value, allocator);
+            const colors = [_]struct { json: []const u8, r: u8, g: u8, b: u8 }{
+                .{ .json = "\"#000000\"", .r = 0x00, .g = 0x00, .b = 0x00 },
+                .{ .json = "\"#FFFFFF\"", .r = 0xFF, .g = 0xFF, .b = 0xFF },
+                .{ .json = "\"#FF0000\"", .r = 0xFF, .g = 0x00, .b = 0x00 },
+                .{ .json = "\"#00FF00\"", .r = 0x00, .g = 0xFF, .b = 0x00 },
+            };
 
-    const color = try zjson.unmarshalWithCustom(Color, value, allocator);
-
-    try std.testing.expect(color.r == 0xFF);
-    try std.testing.expect(color.g == 0x57);
-    try std.testing.expect(color.b == 0x33);
-}
-
-test "unmarshal multiple colors" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const colors = [_]struct { json: []const u8, r: u8, g: u8, b: u8 }{
-        .{ .json = "\"#000000\"", .r = 0x00, .g = 0x00, .b = 0x00 },
-        .{ .json = "\"#FFFFFF\"", .r = 0xFF, .g = 0xFF, .b = 0xFF },
-        .{ .json = "\"#FF0000\"", .r = 0xFF, .g = 0x00, .b = 0x00 },
-        .{ .json = "\"#00FF00\"", .r = 0x00, .g = 0xFF, .b = 0x00 },
-    };
-
-    for (colors) |test_color| {
-        const value = try zjson.parse(test_color.json, allocator, .{});
-        defer zjson.freeValue(value, allocator);
-
-        const color = try zjson.unmarshalWithCustom(Color, value, allocator);
-        try std.testing.expect(color.r == test_color.r);
-        try std.testing.expect(color.g == test_color.g);
-        try std.testing.expect(color.b == test_color.b);
-    }
+            inline for (colors) |test_color| {
+                var value = try zjson.parseToArena(test_color.json, allocator, .{});
+                defer value.deinit();
+                const parsed = try zjson.unmarshalWithCustom(Color, value.value, allocator);
+                try std.testing.expect(parsed.r == test_color.r);
+                try std.testing.expect(parsed.g == test_color.g);
+                try std.testing.expect(parsed.b == test_color.b);
+            }
+        }
+    }.run);
 }
 
 test "type without custom marshal" {
@@ -123,30 +109,25 @@ test "type without custom unmarshal" {
 }
 
 test "UUID custom unmarshal" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const json = "\"123e4567-e89b-12d3-a456-426614174000\"";
-    const value = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(value, allocator);
-
-    const uuid = try zjson.unmarshalWithCustom(UUID, value, allocator);
-
-    try std.testing.expect(uuid.data[0] == 0xAB);
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var value = try zjson.parseToArena("\"123e4567-e89b-12d3-a456-426614174000\"", allocator, .{});
+            defer value.deinit();
+            const uuid = try zjson.unmarshalWithCustom(UUID, value.value, allocator);
+            try std.testing.expect(uuid.data[0] == 0xAB);
+        }
+    }.run);
 }
 
 test "invalid hex color error handling" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const json = "\"INVALID\"";
-    const value = try zjson.parse(json, allocator, .{});
-    defer zjson.freeValue(value, allocator);
-
-    const result = zjson.unmarshalWithCustom(Color, value, allocator);
-    try std.testing.expectError(zjson.Error.InvalidSyntax, result);
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var value = try zjson.parseToArena("\"INVALID\"", allocator, .{});
+            defer value.deinit();
+            const result = zjson.unmarshalWithCustom(Color, value.value, allocator);
+            try std.testing.expectError(zjson.Error.InvalidSyntax, result);
+        }
+    }.run);
 }
 
 test "mixed types with custom and non-custom" {
