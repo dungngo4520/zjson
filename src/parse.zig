@@ -294,100 +294,251 @@ const FastParser = struct {
     }
 
     fn parseArray(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '[') return self.fail(Error.InvalidSyntax);
-        self.advance(1);
-        self.skipWhitespace();
-
-        // Empty array
-        if (self.pos < self.input.len and self.input[self.pos] == ']') {
-            self.advance(1);
-            return Value{ .Array = &.{} };
-        }
-
-        var items = try std.ArrayList(Value).initCapacity(self.arena, 8);
-
-        while (true) {
-            const item = try self.parseValue();
-            try items.append(self.arena, item);
-
-            self.skipWhitespace();
-            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
-
-            if (self.input[self.pos] == ']') {
-                self.advance(1);
-                break;
-            } else if (self.input[self.pos] == ',') {
-                self.advance(1);
-                self.skipWhitespace();
-                // Handle trailing comma
-                if (self.options.allow_trailing_commas and
-                    self.pos < self.input.len and self.input[self.pos] == ']')
-                {
-                    self.advance(1);
-                    break;
-                }
-            } else {
-                return self.fail(Error.InvalidSyntax);
-            }
-        }
-
-        return Value{ .Array = try items.toOwnedSlice(self.arena) };
+        return self.parseContainer(.array);
     }
 
     fn parseObject(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '{') return self.fail(Error.InvalidSyntax);
-        self.advance(1);
-        self.skipWhitespace();
+        return self.parseContainer(.object);
+    }
 
-        // Empty object
-        if (self.pos < self.input.len and self.input[self.pos] == '}') {
-            self.advance(1);
-            return Value{ .Object = &.{} };
+    const ContainerKind = enum { array, object };
+
+    const StackFrame = union(enum) {
+        array: ArrayFrame,
+        object: ObjectFrame,
+    };
+
+    const ArrayFrame = struct {
+        items: std.ArrayList(Value),
+        expect_value: bool,
+        seen_value: bool,
+    };
+
+    const ObjectState = enum {
+        expect_key_or_end,
+        expect_colon,
+        expect_value,
+        expect_comma_or_end,
+    };
+
+    const ObjectFrame = struct {
+        fields: std.ArrayList(Pair),
+        state: ObjectState,
+        pending_key: ?[]const u8,
+        awaiting_key_after_comma: bool,
+    };
+
+    const FrameStack = std.ArrayList(StackFrame);
+
+    fn parseContainer(self: *FastParser, kind: ContainerKind) Error!Value {
+        var stack: FrameStack = .empty;
+        defer stack.deinit(self.arena);
+
+        switch (kind) {
+            .array => try self.pushArrayFrame(&stack),
+            .object => try self.pushObjectFrame(&stack),
         }
 
-        var fields = try std.ArrayList(Pair).initCapacity(self.arena, 8);
-
-        while (true) {
+        while (stack.items.len > 0) {
             self.skipWhitespace();
-            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+            const idx = stack.items.len - 1;
+            switch (stack.items[idx]) {
+                .array => |*arr| {
+                    if (arr.expect_value) {
+                        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
-            // Parse key
-            const key_value = try self.parseString();
-            const key = switch (key_value) {
-                .String => |s| s,
-                else => return self.fail(Error.InvalidSyntax),
-            };
+                        if (self.input[self.pos] == ']') {
+                            if (arr.seen_value and !self.options.allow_trailing_commas) {
+                                return self.fail(Error.InvalidSyntax);
+                            }
+                            self.advance(1);
+                            const completion = try self.handleContainerCompletion(
+                                &stack,
+                                Value{ .Array = try arr.items.toOwnedSlice(self.arena) },
+                            );
+                            if (completion) |result| return result;
+                            continue;
+                        }
 
-            self.skipWhitespace();
-            if (self.pos >= self.input.len or self.input[self.pos] != ':') return self.fail(Error.InvalidSyntax);
-            self.advance(1);
+                            const scalar = try self.beginValue(&stack);
+                            if (scalar) |value| {
+                                try arr.items.append(self.arena, value);
+                            arr.expect_value = false;
+                            arr.seen_value = true;
+                        }
+                        continue;
+                    }
 
-            // Parse value
-            const value = try self.parseValue();
-            try fields.append(self.arena, Pair{ .key = key, .value = value });
+                    if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+                    const c = self.input[self.pos];
+                    if (c == ',') {
+                        self.advance(1);
+                        arr.expect_value = true;
+                        continue;
+                    } else if (c == ']') {
+                        self.advance(1);
+                        const completion = try self.handleContainerCompletion(
+                            &stack,
+                            Value{ .Array = try arr.items.toOwnedSlice(self.arena) },
+                        );
+                        if (completion) |result| return result;
+                        continue;
+                    } else {
+                        return self.fail(Error.InvalidSyntax);
+                    }
+                },
+                .object => |*obj| {
+                    switch (obj.state) {
+                        .expect_key_or_end => {
+                            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
 
-            self.skipWhitespace();
-            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+                            if (self.input[self.pos] == '}') {
+                                if (obj.awaiting_key_after_comma and !self.options.allow_trailing_commas) {
+                                    return self.fail(Error.InvalidSyntax);
+                                }
+                                self.advance(1);
+                                const completion = try self.handleContainerCompletion(
+                                    &stack,
+                                    Value{ .Object = try obj.fields.toOwnedSlice(self.arena) },
+                                );
+                                if (completion) |result| return result;
+                                continue;
+                            }
 
-            if (self.input[self.pos] == '}') {
-                self.advance(1);
-                break;
-            } else if (self.input[self.pos] == ',') {
-                self.advance(1);
-                // Handle trailing comma
-                self.skipWhitespace();
-                if (self.options.allow_trailing_commas and
-                    self.pos < self.input.len and self.input[self.pos] == '}')
-                {
-                    self.advance(1);
-                    break;
-                }
-            } else {
-                return self.fail(Error.InvalidSyntax);
+                            const key_value = try self.parseString();
+                            const key = switch (key_value) {
+                                .String => |s| s,
+                                else => return self.fail(Error.InvalidSyntax),
+                            };
+
+                            obj.pending_key = key;
+                            obj.state = .expect_colon;
+                            obj.awaiting_key_after_comma = false;
+                            continue;
+                        },
+                        .expect_colon => {
+                            if (self.pos >= self.input.len or self.input[self.pos] != ':') {
+                                return self.fail(Error.InvalidSyntax);
+                            }
+                            self.advance(1);
+                            obj.state = .expect_value;
+                            continue;
+                        },
+                        .expect_value => {
+                            const scalar = try self.beginValue(&stack);
+                            if (scalar) |value| {
+                                const key = obj.pending_key orelse return self.fail(Error.InvalidSyntax);
+                                try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+                                obj.pending_key = null;
+                                obj.state = .expect_comma_or_end;
+                            }
+                            continue;
+                        },
+                        .expect_comma_or_end => {
+                            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+                            const c = self.input[self.pos];
+                            if (c == ',') {
+                                self.advance(1);
+                                obj.state = .expect_key_or_end;
+                                obj.awaiting_key_after_comma = true;
+                                continue;
+                            } else if (c == '}') {
+                                self.advance(1);
+                                const completion = try self.handleContainerCompletion(
+                                    &stack,
+                                    Value{ .Object = try obj.fields.toOwnedSlice(self.arena) },
+                                );
+                                if (completion) |result| return result;
+                                continue;
+                            } else {
+                                return self.fail(Error.InvalidSyntax);
+                            }
+                        },
+                    }
+                },
             }
         }
 
-        return Value{ .Object = try fields.toOwnedSlice(self.arena) };
+        unreachable;
+    }
+
+    fn pushArrayFrame(self: *FastParser, stack: *FrameStack) Error!void {
+        if (self.pos >= self.input.len or self.input[self.pos] != '[') {
+            return self.fail(Error.InvalidSyntax);
+        }
+        self.advance(1);
+        const frame = StackFrame{
+            .array = .{
+                .items = try std.ArrayList(Value).initCapacity(self.arena, 8),
+                .expect_value = true,
+                .seen_value = false,
+            },
+        };
+        try stack.append(self.arena, frame);
+    }
+
+    fn pushObjectFrame(self: *FastParser, stack: *FrameStack) Error!void {
+        if (self.pos >= self.input.len or self.input[self.pos] != '{') {
+            return self.fail(Error.InvalidSyntax);
+        }
+        self.advance(1);
+        const frame = StackFrame{
+            .object = .{
+                .fields = try std.ArrayList(Pair).initCapacity(self.arena, 8),
+                .state = .expect_key_or_end,
+                .pending_key = null,
+                .awaiting_key_after_comma = false,
+            },
+        };
+        try stack.append(self.arena, frame);
+    }
+
+    fn beginValue(self: *FastParser, stack: *FrameStack) Error!?Value {
+        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+
+        return switch (self.input[self.pos]) {
+            '[' => blk: {
+                try self.pushArrayFrame(stack);
+                break :blk null;
+            },
+            '{' => blk: {
+                try self.pushObjectFrame(stack);
+                break :blk null;
+            },
+            'n' => try self.parseNull(),
+            't', 'f' => try self.parseBool(),
+            '"' => try self.parseString(),
+            '-', '0'...'9' => try self.parseNumber(),
+            else => self.fail(Error.InvalidSyntax),
+        };
+    }
+
+    fn handleContainerCompletion(self: *FastParser, stack: *FrameStack, value: Value) Error!?Value {
+        stack.items.len -= 1;
+        if (stack.items.len == 0) {
+            return value;
+        }
+
+        try self.attachValueToParent(stack, value);
+        return null;
+    }
+
+    fn attachValueToParent(self: *FastParser, stack: *FrameStack, value: Value) Error!void {
+        if (stack.items.len == 0) return;
+        const parent = &stack.items[stack.items.len - 1];
+        switch (parent.*) {
+            .array => |*arr| {
+                try arr.items.append(self.arena, value);
+                arr.expect_value = false;
+                arr.seen_value = true;
+            },
+            .object => |*obj| {
+                const key = obj.pending_key orelse return self.fail(Error.InvalidSyntax);
+                try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+                obj.pending_key = null;
+                obj.state = .expect_comma_or_end;
+            },
+        }
     }
 
     inline fn skipWhitespace(self: *FastParser) void {

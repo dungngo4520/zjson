@@ -103,6 +103,36 @@ test "parse nested structures" {
     }.run);
 }
 
+test "parse deeply nested arrays" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const depth = 5000;
+            var source = try std.ArrayList(u8).initCapacity(std.testing.allocator, depth * 2 + 32);
+            defer source.deinit(std.testing.allocator);
+
+            for (0..depth) |_| {
+                try source.append(std.testing.allocator, '[');
+            }
+            try source.append(std.testing.allocator, '0');
+            for (0..depth) |_| {
+                try source.append(std.testing.allocator, ']');
+            }
+
+            var parsed = try zjson.parseToArena(source.items, allocator, .{});
+            defer parsed.deinit();
+
+            var current = parsed.value;
+            var remaining: usize = depth;
+            while (remaining > 0) : (remaining -= 1) {
+                try expectTag(current, .Array);
+                try std.testing.expectEqual(@as(usize, 1), current.Array.len);
+                current = current.Array[0];
+            }
+            try expectNumber(current, "0");
+        }
+    }.run);
+}
+
 test "parse with trailing commas" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
