@@ -8,9 +8,18 @@ Zig 0.15 or newer.
 
 ## Features
 
-- Compile-time JSON serialization
-- Runtime JSON serialization and parsing
-- Generic struct unmarshaling
+- Turn Zig structs into JSON at compile time and runtime.
+- Parse JSON text into an arena-backed tree.
+- Unmarshal JSON into typed structs with one call.
+
+## API basics
+
+- Import everything with `const zjson = @import("zjson");`.
+- Parsing: `parseToArena(text, allocator, options)` returns a `ParseResult` (call `deinit` when done).
+- Marshaling: `marshal` and `marshalAlloc` turn Zig data into JSON.
+- Unmarshaling: `unmarshal(Type, value, allocator)` plus helpers like `getFieldAs` and `arrayAs`.
+- Quick value helpers: `toI64`, `toF64`, `toBool`, `toString`, `getObjectField`, `getArrayElement`, `arrayLen`, `objectLen`, `isNull`.
+- Custom hooks: `marshalWithCustom` / `unmarshalWithCustom` let you override defaults for special types.
 
 ## Installation
 
@@ -69,7 +78,7 @@ pub fn main() !void {
 
 ## Benchmarks
 
-Informal benchmarks compare `zjson.parseToArena` against Zig's `std.json.parseFromSlice` on a local Linux machine (Zig 0.15.0, `ReleaseFast`). Each executable under `benchmark/` was built via `zig build benchmark` and run directly from `zig-out/benchmark`. Times are microseconds per parse averaged over the sample's iteration count.
+Benchmarks compare `zjson.parseToArena` against `std.json.parseFromSlice` (Zig 0.15.0, `ReleaseFast`). Times are microseconds per parse.
 
 ### Numbers (array of integers)
 
