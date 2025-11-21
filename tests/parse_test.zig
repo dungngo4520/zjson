@@ -147,6 +147,27 @@ test "parse with comments" {
     }.run);
 }
 
+test "parse errors" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const cases = [_]struct {
+                json: []const u8,
+                options: zjson.ParseOptions = .{},
+                err: zjson.Error,
+            }{
+                .{ .json = "{\"a\": 1", .err = zjson.Error.UnexpectedEnd },
+                .{ .json = "[1,]", .err = zjson.Error.InvalidSyntax },
+                .{ .json = "{\"a\": tru}", .err = zjson.Error.InvalidSyntax },
+                .{ .json = "{\"a\":1} xyz", .err = zjson.Error.TrailingCharacters },
+            };
+
+            inline for (cases) |case| {
+                try std.testing.expectError(case.err, zjson.parseToArena(case.json, allocator, case.options));
+            }
+        }
+    }.run);
+}
+
 const ValueTag = std.meta.Tag(zjson.Value);
 
 fn expectTag(value: zjson.Value, tag: ValueTag) !void {
