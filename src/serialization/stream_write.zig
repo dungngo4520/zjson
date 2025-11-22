@@ -1,6 +1,6 @@
 const std = @import("std");
-const value_mod = @import("value.zig");
-const escape = @import("escape.zig");
+const value_mod = @import("../core/value.zig");
+const escape_mod = @import("../utils/escape.zig");
 
 pub const Error = error{
     InvalidState,
@@ -253,7 +253,7 @@ pub fn StreamWriter(comptime WriterType: type) type {
         }
 
         fn writeStringValue(self: *Self, value: []const u8) !void {
-            try escape.writeEscapedToWriter(self.writer, value);
+            try escape_mod.writeEscapedToWriter(self.writer, value);
         }
 
         fn writeNewline(self: *Self) !void {

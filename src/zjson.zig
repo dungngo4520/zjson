@@ -1,70 +1,66 @@
-const value = @import("value.zig");
-const marshaler = @import("marshal.zig");
-const parser = @import("parse.zig");
-const converter = @import("convert.zig");
-const unmarshaller = @import("unmarshal.zig");
-const custom = @import("custom.zig");
-const stream_parse = @import("stream_parse.zig");
-const stream_write = @import("stream_write.zig");
-const lexer = @import("lexer.zig");
-const escape_mod = @import("escape.zig");
+const value_mod = @import("core/value.zig");
+const marshal_mod = @import("serialization/marshal.zig");
+const parse_mod = @import("parsing/parse.zig");
+const unmarshal_mod = @import("deserialization/unmarshal.zig");
+const stream_parse_mod = @import("parsing/stream_parse.zig");
+const stream_write_mod = @import("serialization/stream_write.zig");
+const lexer_mod = @import("parsing/lexer.zig");
+const escape_mod = @import("utils/escape.zig");
 
 // Re-export all public APIs
-pub const Error = value.Error;
-pub const Value = value.Value;
-pub const Pair = value.Pair;
-pub const MarshalOptions = value.MarshalOptions;
-pub const ParseOptions = value.ParseOptions;
-pub const ParseResult = value.ParseResult;
-pub const ParseErrorInfo = value.ParseErrorInfo;
+pub const Error = value_mod.Error;
+pub const Value = value_mod.Value;
+pub const Pair = value_mod.Pair;
+pub const MarshalOptions = value_mod.MarshalOptions;
+pub const ParseOptions = value_mod.ParseOptions;
+pub const ParseResult = value_mod.ParseResult;
+pub const ParseErrorInfo = value_mod.ParseErrorInfo;
 
-pub const marshal = marshaler.marshal;
-pub const marshalAlloc = marshaler.marshalAlloc;
+pub const marshal = marshal_mod.marshal;
+pub const marshalAlloc = marshal_mod.marshalAlloc;
 
-pub const parse = parser.parse;
-pub const lastParseErrorInfo = parser.lastParseErrorInfo;
-pub const writeParseErrorIndicator = parser.writeParseErrorIndicator;
+pub const parse = parse_mod.parse;
+pub const lastParseErrorInfo = parse_mod.lastParseErrorInfo;
+pub const writeParseErrorIndicator = parse_mod.writeParseErrorIndicator;
 
 // Lexer module (for advanced use and testing)
-pub const Lexer = lexer.Lexer;
-pub const Position = lexer.Position;
-pub const LexerError = lexer.Error;
+pub const Lexer = lexer_mod.Lexer;
+pub const Position = lexer_mod.Position;
+pub const LexerError = lexer_mod.Error;
 
 // Escape utilities (for advanced use and testing)
 pub const escape = escape_mod;
 
-// Value conversion functions
-pub const toI64 = converter.toI64;
-pub const toI32 = converter.toI32;
-pub const toU64 = converter.toU64;
-pub const toU32 = converter.toU32;
-pub const toF64 = converter.toF64;
-pub const toF32 = converter.toF32;
-pub const toString = converter.toString;
-pub const toBool = converter.toBool;
-pub const isNull = converter.isNull;
-pub const arrayLen = converter.arrayLen;
-pub const objectLen = converter.objectLen;
-pub const getObjectField = converter.getObjectField;
-pub const getArrayElement = converter.getArrayElement;
-pub const getNumberString = converter.getNumberString;
+pub const toI64 = value_mod.toI64;
+pub const toI32 = value_mod.toI32;
+pub const toU64 = value_mod.toU64;
+pub const toU32 = value_mod.toU32;
+pub const toF64 = value_mod.toF64;
+pub const toF32 = value_mod.toF32;
+pub const toString = value_mod.toString;
+pub const toBool = value_mod.toBool;
+pub const isNull = value_mod.isNull;
+pub const arrayLen = value_mod.arrayLen;
+pub const objectLen = value_mod.objectLen;
+pub const getObjectField = value_mod.getObjectField;
+pub const getArrayElement = value_mod.getArrayElement;
+pub const getNumberString = value_mod.getNumberString;
 
 // Unmarshal functions for deserializing into typed structs
-pub const unmarshal = unmarshaller.unmarshal;
-pub const getFieldAs = unmarshaller.getFieldAs;
-pub const arrayAs = unmarshaller.arrayAs;
+pub const unmarshal = unmarshal_mod.unmarshal;
+pub const getFieldAs = unmarshal_mod.getFieldAs;
+pub const arrayAs = unmarshal_mod.arrayAs;
 
-// Custom marshaler support
-pub const hasCustomMarshal = custom.hasCustomMarshal;
-pub const hasCustomUnmarshal = custom.hasCustomUnmarshal;
-pub const marshalWithCustom = custom.marshalWithCustom;
-pub const unmarshalWithCustom = custom.unmarshalWithCustom;
+pub const hasCustomMarshal = marshal_mod.hasCustomMarshal;
+pub const hasCustomUnmarshal = unmarshal_mod.hasCustomUnmarshal;
+pub const marshalWithCustom = marshal_mod.marshalWithCustom;
+pub const unmarshalWithCustom = unmarshal_mod.unmarshalWithCustom;
 
 // Streaming parser and writer
-pub const StreamParser = stream_parse.StreamParser;
-pub const streamParser = stream_parse.streamParser;
-pub const Token = stream_parse.Token;
-pub const TokenType = stream_parse.TokenType;
+pub const StreamParser = stream_parse_mod.StreamParser;
+pub const streamParser = stream_parse_mod.streamParser;
+pub const Token = stream_parse_mod.Token;
+pub const TokenType = stream_parse_mod.TokenType;
 
-pub const StreamWriter = stream_write.StreamWriter;
-pub const streamWriter = stream_write.streamWriter;
+pub const StreamWriter = stream_write_mod.StreamWriter;
+pub const streamWriter = stream_write_mod.streamWriter;

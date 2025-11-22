@@ -1,6 +1,6 @@
 const std = @import("std");
-const value_mod = @import("value.zig");
-const escape_mod = @import("escape.zig");
+const value_mod = @import("../core/value.zig");
+const escape_mod = @import("../utils/escape.zig");
 
 /// Check if a type has a custom marshal method
 pub fn hasCustomMarshal(comptime T: type) bool {

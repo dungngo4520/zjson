@@ -1,5 +1,5 @@
 const std = @import("std");
-const value_mod = @import("value.zig");
+const value_mod = @import("../core/value.zig");
 
 pub const Value = value_mod.Value;
 pub const Error = value_mod.Error;
