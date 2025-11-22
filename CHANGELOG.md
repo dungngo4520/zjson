@@ -1,42 +1,40 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes documented here. See [Semantic Versioning](https://semver.org).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.1.0] - 2025-11-22
 
-## [Unreleased]
+### Core Features
 
-### Changed
+- Arena-based JSON parser
+- Compile-time & runtime marshal (Zig structs → JSON)
+- Unmarshal (JSON → Zig structs) with type inference
+- Streaming parser for large files (token-based)
+- Streaming writer for incremental JSON generation
 
-- Renamed `stringify()` to `marshal()` and `stringifyAlloc()` to `marshalAlloc()` for better API coherence with `unmarshal()`
-- Renamed `StringifyOptions` to `MarshalOptions`
-- Renamed `stringifyWithCustom()` to `marshalWithCustom()`
+### API
 
-### Added
+- `parse()` - Fast arena-backed parsing
+- `marshal()` / `marshalAlloc()` - Serialization with custom hooks
+- `unmarshal()` / `unmarshalWithCustom()` - Deserialization
+- `streamParser()` / `streamWriter()` - Memory-efficient streaming
+- Value helpers: converters, accessors, utilities
+- Error reporting: line/column info + visual indicators
 
-- Initial public release of zjson
-- Compile-time JSON serialization with `stringify()`
-- Runtime JSON parsing with `parse()`
-- Support for all JSON types: null, bool, number, string, array, object
-- String escaping with full JSON spec compliance
-- Optional field omission (omitempty)
-- Enum serialization support
-- Memory management with allocator support
-- Comprehensive test suite with 15+ tests
-- CI/CD with GitHub Actions
-- Auto-discovery build system for tests and examples
-- Professional documentation and examples
-- MIT License
-- Contribution guidelines
+### Options
 
-## [0.1.0] - 2025-11-19
+- Parse: `allow_comments`, `allow_trailing_commas`
+- Marshal: `pretty`, `indent`, `omit_null`, `sort_keys`
 
-### Initial Release
+### Quality
 
-- Initial alpha release
-- Core stringify and parse functionality
-- Basic documentation
+- JSON Test Suite integration
 
-[Unreleased]: https://github.com/username/zjson/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/username/zjson/releases/tag/v0.1.0
+### Known Limitations
+
+- No JSON Pointer/JSONPath queries
+- No JSON Schema validation
+- No JSON Patch support
+- Numbers stored as strings (intentional, for precision)
+
+[0.1.0]: https://github.com/dungngo4520/zjson/releases/tag/v0.1.0
