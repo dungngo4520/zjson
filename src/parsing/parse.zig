@@ -397,7 +397,7 @@ const FastParser = struct {
         self.advance(1);
         const frame = StackFrame{
             .array = .{
-                .items = try std.ArrayList(Value).initCapacity(self.arena, 8),
+                .items = try std.ArrayList(Value).initCapacity(self.arena, 32),
                 .expect_value = true,
                 .seen_value = false,
             },
@@ -411,7 +411,7 @@ const FastParser = struct {
         self.advance(1);
         const frame = StackFrame{
             .object = .{
-                .fields = try std.ArrayList(Pair).initCapacity(self.arena, 8),
+                .fields = try std.ArrayList(Pair).initCapacity(self.arena, 32),
                 .state = .expect_key_or_end,
                 .pending_key = null,
                 .awaiting_key_after_comma = false,

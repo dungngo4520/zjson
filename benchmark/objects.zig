@@ -6,12 +6,12 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try benchmark(allocator, 10, 100);
-    try benchmark(allocator, 50, 50);
-    try benchmark(allocator, 100, 20);
-    try benchmarkManyFields(allocator, 10, 100);
-    try benchmarkManyFields(allocator, 50, 50);
-    try benchmarkManyFields(allocator, 100, 20);
+    try benchmark(allocator, 100, 100);
+    try benchmark(allocator, 10000, 10);
+    try benchmark(allocator, 1000000, 1);
+    try benchmarkManyFields(allocator, 100, 100);
+    try benchmarkManyFields(allocator, 10000, 10);
+    try benchmarkManyFields(allocator, 1000000, 1);
 }
 
 fn benchmark(allocator: std.mem.Allocator, count: usize, iterations: usize) !void {
