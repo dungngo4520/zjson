@@ -24,11 +24,8 @@ jobs:
         with:
           version: ${{ matrix.zig-version }}
 
-      - name: Build
+      - name: Build example and unit tests
         run: zig build --summary all
-
-      - name: Run Unit Tests
-        run: zig build test --summary all
 
       - name: Setup Python
         uses: actions/setup-python@v5
