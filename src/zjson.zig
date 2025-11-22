@@ -6,6 +6,7 @@ const stream_parse_mod = @import("parsing/stream_parse.zig");
 const stream_write_mod = @import("serialization/stream_write.zig");
 const lexer_mod = @import("parsing/lexer.zig");
 const escape_mod = @import("utils/escape.zig");
+const error_mod = @import("utils/error.zig");
 
 // Re-export all public APIs
 pub const Error = value_mod.Error;
@@ -21,7 +22,7 @@ pub const marshalAlloc = marshal_mod.marshalAlloc;
 
 pub const parse = parse_mod.parse;
 pub const lastParseErrorInfo = parse_mod.lastParseErrorInfo;
-pub const writeParseErrorIndicator = parse_mod.writeParseErrorIndicator;
+pub const writeParseErrorIndicator = error_mod.writeParseErrorIndicator;
 
 // Lexer types (for advanced use and testing)
 pub const SliceLexer = lexer_mod.SliceLexer;

@@ -1,6 +1,7 @@
 const std = @import("std");
 const value_mod = @import("../core/value.zig");
 const lexer_mod = @import("lexer.zig");
+const error_util = @import("../utils/error.zig");
 
 pub const Error = value_mod.Error;
 pub const Value = value_mod.Value;
@@ -15,48 +16,11 @@ pub fn lastParseErrorInfo() ?value_mod.ParseErrorInfo {
     return last_parse_error_info;
 }
 
-pub fn writeParseErrorIndicator(info: value_mod.ParseErrorInfo, writer: anytype) !void {
-    const ctx = info.context;
-    if (ctx.len == 0) {
-        try writer.print("(no context available)\n", .{});
-        return;
-    }
-
-    const caret_rel = if (info.byte_offset >= info.context_offset)
-        info.byte_offset - info.context_offset
-    else
-        0;
-
-    const before_slice = ctx[0..@min(caret_rel, ctx.len)];
-    const line_start = blk: {
-        if (std.mem.lastIndexOfScalar(u8, before_slice, '\n')) |idx|
-            break :blk idx + 1;
-        break :blk 0;
-    };
-
-    const line_end = blk: {
-        if (caret_rel < ctx.len) {
-            if (std.mem.indexOfScalarPos(u8, ctx, caret_rel, '\n')) |idx|
-                break :blk idx;
-        }
-        break :blk ctx.len;
-    };
-
-    const line_slice = ctx[line_start..line_end];
-    const caret_pos = if (caret_rel > line_start) caret_rel - line_start else 0;
-
-    try writer.print("line {d}, column {d}\n", .{ info.line, info.column });
-    try writer.print("{s}\n", .{line_slice});
-
-    var i: usize = 0;
-    while (i < caret_pos) : (i += 1) {
-        try writer.writeByte(' ');
-    }
-
-    try writer.writeAll("^\n");
-}
-
 pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
+    if (input.len > options.max_document_size) {
+        return Error.DocumentTooLarge;
+    }
+
     var arena = std.heap.ArenaAllocator.init(base_allocator);
     errdefer arena.deinit();
 
@@ -108,15 +72,19 @@ const FastParser = struct {
         };
     }
 
-    inline fn fail(self: *FastParser, err: Error) Error {
+    fn fail(self: *FastParser, err: Error) Error {
         const pos = self.lexer.position;
         const ctx = self.sliceContext();
+
+        const hint = error_util.getErrorMessage(err);
+
         const info = value_mod.ParseErrorInfo{
             .byte_offset = pos.byte_offset,
             .line = pos.line,
             .column = pos.column,
             .context = ctx.slice,
             .context_offset = ctx.start,
+            .suggested_fix = hint,
         };
         self.last_error_info = info;
         last_parse_error_info = info;
@@ -358,7 +326,29 @@ const FastParser = struct {
                             const scalar = try self.beginValue(&stack);
                             if (scalar) |value| {
                                 const key = obj.pending_key orelse return self.fail(Error.InvalidSyntax);
-                                try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+
+                                // Handle duplicate keys
+                                var dup_idx: ?usize = null;
+                                for (obj.fields.items, 0..) |pair, j| {
+                                    if (std.mem.eql(u8, pair.key, key)) {
+                                        dup_idx = j;
+                                        break;
+                                    }
+                                }
+
+                                if (dup_idx) |dup_field_idx| {
+                                    switch (self.options.duplicate_key_policy) {
+                                        .reject => return self.fail(Error.DuplicateKey),
+                                        .keep_first => {}, // Do nothing, ignore the new value
+                                        .keep_last => {
+                                            // Replace the old value with the new one
+                                            obj.fields.items[dup_field_idx].value = value;
+                                        },
+                                    }
+                                } else {
+                                    try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+                                }
+
                                 obj.pending_key = null;
                                 obj.state = .expect_comma_or_end;
                             }
@@ -392,6 +382,10 @@ const FastParser = struct {
     }
 
     fn pushArrayFrame(self: *FastParser, stack: *FrameStack) Error!void {
+        if (stack.items.len >= self.options.max_depth) {
+            return self.fail(Error.MaxDepthExceeded);
+        }
+
         const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
         if (c != '[') return self.fail(Error.InvalidSyntax);
         self.advance(1);
@@ -406,6 +400,10 @@ const FastParser = struct {
     }
 
     fn pushObjectFrame(self: *FastParser, stack: *FrameStack) Error!void {
+        if (stack.items.len >= self.options.max_depth) {
+            return self.fail(Error.MaxDepthExceeded);
+        }
+
         const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
         if (c != '{') return self.fail(Error.InvalidSyntax);
         self.advance(1);

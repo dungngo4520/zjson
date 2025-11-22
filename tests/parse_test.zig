@@ -118,7 +118,7 @@ test "parse deeply nested arrays" {
                 try source.append(std.testing.allocator, ']');
             }
 
-            var parsed = try zjson.parse(source.items, allocator, .{});
+            var parsed = try zjson.parse(source.items, allocator, .{ .max_depth = 10000 });
             defer parsed.deinit();
 
             var current = parsed.value;
@@ -249,4 +249,106 @@ fn expectNumber(value: zjson.Value, expected: []const u8) !void {
 fn expectString(value: zjson.Value, expected: []const u8) !void {
     try expectTag(value, .String);
     try std.testing.expectEqualStrings(expected, value.String);
+}
+
+test "recursion depth limit" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            // Use a pre-computed deeply nested JSON string
+            // Testing with max_depth option set to 5
+            const deeply_nested = "[[[[[[0]]]]]]"; // 6 levels of nesting
+
+            // This should parse fine with default max_depth
+            var result1 = try zjson.parse(deeply_nested, allocator, .{});
+            defer result1.deinit();
+
+            // This should fail with max_depth=5 (only allows 5 levels, not 6)
+            const result2 = zjson.parse(deeply_nested, allocator, .{ .max_depth = 5 });
+            try std.testing.expectError(zjson.Error.MaxDepthExceeded, result2);
+        }
+    }.run);
+}
+
+test "document size limit" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            // Create a document that exceeds max_document_size
+            const large_doc = try allocator.alloc(u8, 11_000_000);
+            defer allocator.free(large_doc);
+            @memset(large_doc, '"');
+
+            // Should exceed default max_document_size of 10MB
+            const result = zjson.parse(large_doc, allocator, .{});
+            try std.testing.expectError(zjson.Error.DocumentTooLarge, result);
+        }
+    }.run);
+}
+
+test "duplicate key error policy" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const json = "{\"key\":1,\"key\":2}";
+
+            // Test error policy
+            const result = zjson.parse(json, allocator, .{ .duplicate_key_policy = .reject });
+            try std.testing.expectError(zjson.Error.DuplicateKey, result);
+        }
+    }.run);
+}
+
+test "duplicate key keep_first policy" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const json = "{\"a\":1,\"b\":2,\"a\":3}";
+
+            // Test keep_first policy (should keep value 1 for key "a")
+            var result = try zjson.parse(json, allocator, .{ .duplicate_key_policy = .keep_first });
+            defer result.deinit();
+
+            const obj = result.value.Object;
+            try std.testing.expectEqual(@as(usize, 2), obj.len);
+
+            // Find "a" and verify it has value 1
+            for (obj) |pair| {
+                if (std.mem.eql(u8, pair.key, "a")) {
+                    try std.testing.expectEqualStrings("1", pair.value.Number);
+                }
+            }
+        }
+    }.run);
+}
+
+test "duplicate key keep_last policy" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const json = "{\"a\":1,\"b\":2,\"a\":3}";
+
+            // Test keep_last policy (default, should keep value 3 for key "a")
+            var result = try zjson.parse(json, allocator, .{ .duplicate_key_policy = .keep_last });
+            defer result.deinit();
+
+            const obj = result.value.Object;
+            try std.testing.expectEqual(@as(usize, 2), obj.len);
+
+            // Find "a" and verify it has value 3
+            for (obj) |pair| {
+                if (std.mem.eql(u8, pair.key, "a")) {
+                    try std.testing.expectEqualStrings("3", pair.value.Number);
+                }
+            }
+        }
+    }.run);
+}
+
+test "improved error context with hints" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            // Test error with missing closing bracket
+            const bad_array = "[1, 2, 3";
+            _ = zjson.parse(bad_array, allocator, .{}) catch {};
+            const info1 = zjson.lastParseErrorInfo();
+            try std.testing.expect(info1 != null);
+            try std.testing.expect(info1.?.suggested_fix.len > 0);
+        }
+    }.run);
 }

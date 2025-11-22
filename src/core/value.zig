@@ -5,11 +5,12 @@ pub const Error = error{
     InvalidSyntax,
     InvalidEscape,
     InvalidNumber,
-    ExpectedColon,
-    ExpectedCommaOrEnd,
-    ExpectedValue,
     TrailingCharacters,
     OutOfMemory,
+    MaxDepthExceeded,
+    DocumentTooLarge,
+    DuplicateKey,
+    NumberOverflow,
 };
 
 /// Detailed parse error with position information
@@ -76,6 +77,7 @@ pub const ParseErrorInfo = struct {
     column: usize,
     context: []const u8 = &.{},
     context_offset: usize = 0,
+    suggested_fix: []const u8 = "",
 };
 
 pub const MarshalOptions = struct {
@@ -85,9 +87,18 @@ pub const MarshalOptions = struct {
     sort_keys: bool = false,
 };
 
+pub const DuplicateKeyPolicy = enum {
+    keep_last,
+    keep_first,
+    reject,
+};
+
 pub const ParseOptions = struct {
     allow_comments: bool = false,
     allow_trailing_commas: bool = false,
+    max_depth: usize = 128,
+    max_document_size: usize = 10_000_000,
+    duplicate_key_policy: DuplicateKeyPolicy = .keep_last,
 };
 
 /// Convert a Value to i64
