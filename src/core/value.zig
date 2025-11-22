@@ -103,40 +103,60 @@ pub const ParseOptions = struct {
 
 /// Convert a Value to i64
 /// Returns error if Value is not a Number or if the string cannot be parsed as i64
-pub fn toI64(val: Value) (Error || std.fmt.ParseIntError)!i64 {
+pub fn toI64(val: Value) Error!i64 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseInt(i64, num_str, 10) catch return Error.InvalidNumber;
+            return std.fmt.parseInt(i64, num_str, 10) catch |err| {
+                return switch (err) {
+                    std.fmt.ParseIntError.Overflow => Error.NumberOverflow,
+                    else => Error.InvalidNumber,
+                };
+            };
         },
         else => return Error.InvalidNumber,
     }
 }
 
 /// Convert a Value to i32
-pub fn toI32(val: Value) (Error || std.fmt.ParseIntError)!i32 {
+pub fn toI32(val: Value) Error!i32 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseInt(i32, num_str, 10) catch return Error.InvalidNumber;
+            return std.fmt.parseInt(i32, num_str, 10) catch |err| {
+                return switch (err) {
+                    std.fmt.ParseIntError.Overflow => Error.NumberOverflow,
+                    else => Error.InvalidNumber,
+                };
+            };
         },
         else => return Error.InvalidNumber,
     }
 }
 
 /// Convert a Value to u64
-pub fn toU64(val: Value) (Error || std.fmt.ParseIntError)!u64 {
+pub fn toU64(val: Value) Error!u64 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseUnsigned(u64, num_str, 10) catch return Error.InvalidNumber;
+            return std.fmt.parseUnsigned(u64, num_str, 10) catch |err| {
+                return switch (err) {
+                    std.fmt.ParseIntError.Overflow => Error.NumberOverflow,
+                    else => Error.InvalidNumber,
+                };
+            };
         },
         else => return Error.InvalidNumber,
     }
 }
 
 /// Convert a Value to u32
-pub fn toU32(val: Value) (Error || std.fmt.ParseIntError)!u32 {
+pub fn toU32(val: Value) Error!u32 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseUnsigned(u32, num_str, 10) catch return Error.InvalidNumber;
+            return std.fmt.parseUnsigned(u32, num_str, 10) catch |err| {
+                return switch (err) {
+                    std.fmt.ParseIntError.Overflow => Error.NumberOverflow,
+                    else => Error.InvalidNumber,
+                };
+            };
         },
         else => return Error.InvalidNumber,
     }
@@ -144,20 +164,24 @@ pub fn toU32(val: Value) (Error || std.fmt.ParseIntError)!u32 {
 
 /// Convert a Value to f64
 /// Handles parsing of floating point numbers
-pub fn toF64(val: Value) (Error || std.fmt.ParseFloatError)!f64 {
+pub fn toF64(val: Value) Error!f64 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseFloat(f64, num_str) catch return Error.InvalidNumber;
+            return std.fmt.parseFloat(f64, num_str) catch {
+                return Error.InvalidNumber;
+            };
         },
         else => return Error.InvalidNumber,
     }
 }
 
 /// Convert a Value to f32
-pub fn toF32(val: Value) (Error || std.fmt.ParseFloatError)!f32 {
+pub fn toF32(val: Value) Error!f32 {
     switch (val) {
         .Number => |num_str| {
-            return std.fmt.parseFloat(f32, num_str) catch return Error.InvalidNumber;
+            return std.fmt.parseFloat(f32, num_str) catch {
+                return Error.InvalidNumber;
+            };
         },
         else => return Error.InvalidNumber,
     }
