@@ -16,6 +16,8 @@ jobs:
         zig-version: [0.15.0]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Zig
         uses: ./.github/actions/setup-zig
@@ -24,6 +26,17 @@ jobs:
 
       - name: Build
         run: zig build --summary all
+
+      - name: Run Unit Tests
+        run: zig build test --summary all
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run JSON Test Suite
+        run: zig build test-suite
 
   lint:
     name: Lint

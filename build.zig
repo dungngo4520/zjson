@@ -25,6 +25,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     build_tests(b, target, optimize, test_step, zjson_module, test_filter);
 
+    // JSON Test Suite runner
+    const json_test_suite_step = b.step("test-suite", "Run JSON Test Suite");
+    build_json_test_suite(b, json_test_suite_step);
+
     // Clean step: remove build artifacts
     const clean_step = b.step("clean", "Remove build artifacts");
     const clean_cmd = b.addRemoveDirTree(b.path("zig-out"));
@@ -86,6 +90,11 @@ fn build_tests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
 
     while (walker.next() catch null) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".zig")) {
+            // Skip the json_test_suite directory
+            if (std.mem.indexOf(u8, entry.path, "json_test_suite") != null) {
+                continue;
+            }
+
             const test_path = b.fmt("tests/{s}", .{entry.path});
 
             const test_module = b.createModule(.{
@@ -146,4 +155,13 @@ fn build_benchmarks(b: *std.Build, target: std.Build.ResolvedTarget, optimize: s
             benchmark_step.dependOn(&install_exe.step);
         }
     }
+}
+
+fn build_json_test_suite(b: *std.Build, json_test_suite_step: *std.Build.Step) void {
+    const run_cmd = b.addSystemCommand(&.{
+        "python3",
+        "tests/json_test_suite/run_json_test_suite.py",
+    });
+
+    json_test_suite_step.dependOn(&run_cmd.step);
 }

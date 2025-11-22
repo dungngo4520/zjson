@@ -37,3 +37,7 @@ vendor/
 # Test coverage
 coverage/
 *.lcov
+
+# JSON Test Suite outputs
+tests/json_test_suite/test_suite_results.json
+tests/json_test_suite/root
