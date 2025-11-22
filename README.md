@@ -15,8 +15,8 @@ Zig 0.15 or newer.
 ## API basics
 
 - Import everything with `const zjson = @import("zjson");`.
-- Parsing: `parseToArena(text, allocator, options)` returns a `ParseResult` (call `deinit` when done).
-- Parse errors: after `parseToArena` fails, call `lastParseErrorInfo()` for byte/line/column info and pass it to `writeParseErrorIndicator()` to show a caret on the offending line.
+- Parsing: `parse(text, allocator, options)` returns a `ParseResult` (call `deinit` when done).
+- Parse errors: after `parse` fails, call `lastParseErrorInfo()` for byte/line/column info and pass it to `writeParseErrorIndicator()` to show a caret on the offending line.
 - Marshaling: `marshal` and `marshalAlloc` turn Zig data into JSON.
 - Unmarshaling: `unmarshal(Type, value, allocator)` plus helpers like `getFieldAs` and `arrayAs`.
 - Quick value helpers: `toI64`, `toF64`, `toBool`, `toString`, `getObjectField`, `getArrayElement`, `arrayLen`, `objectLen`, `isNull`.
@@ -67,7 +67,7 @@ pub fn main() !void {
     std.debug.print("JSON: {s}\n", .{json});
 
     // Parse directly into an arena-backed tree
-    var parsed = try zjson.parseToArena("{\"name\":\"Bob\",\"age\":25}", allocator, .{});
+    var parsed = try zjson.parse("{\"name\":\"Bob\",\"age\":25}", allocator, .{});
     defer parsed.deinit();
 
     // Unmarshal into struct
@@ -90,7 +90,7 @@ zig build examples && zig-out/examples/<example-name>
 
 ## Benchmarks
 
-Benchmarks compare `zjson.parseToArena` against `std.json.parseFromSlice` (Zig 0.15.0, `ReleaseFast`). Times are microseconds per parse.
+Benchmarks compare `zjson.parse` against `std.json.parseFromSlice` (Zig 0.15.0, `ReleaseFast`). Times are microseconds per parse.
 
 ### Numbers (array of integers)
 

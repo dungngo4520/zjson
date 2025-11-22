@@ -13,7 +13,7 @@ pub fn withParsed(
     options: zjson.ParseOptions,
     body: anytype,
 ) !void {
-    var parsed = try zjson.parseToArena(json, allocator, options);
+    var parsed = try zjson.parse(json, allocator, options);
     defer parsed.deinit();
     try body(parsed.value, allocator);
 }

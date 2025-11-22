@@ -16,7 +16,7 @@ pub fn main() !void {
         \\}
     ;
 
-    var parsed = zjson.parseToArena(bad_json, allocator, .{}) catch |err| {
+    var parsed = zjson.parse(bad_json, allocator, .{}) catch |err| {
         std.debug.print("Parse failed: {}\n", .{err});
         if (zjson.lastParseErrorInfo()) |info| {
             std.debug.print(

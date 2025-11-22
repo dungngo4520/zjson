@@ -24,7 +24,7 @@ pub fn main() !void {
     defer allocator.free(content);
 
     // Try to parse
-    var parse_result = zjson.parseToArena(content, allocator, .{}) catch |err| {
+    var parse_result = zjson.parse(content, allocator, .{}) catch |err| {
         std.debug.print("REJECTED: {}\n", .{err});
         return;
     };

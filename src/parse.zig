@@ -55,7 +55,7 @@ pub fn writeParseErrorIndicator(info: value_mod.ParseErrorInfo, writer: anytype)
     try writer.writeAll("^\n");
 }
 
-pub fn parseToArena(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
+pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
     var arena = std.heap.ArenaAllocator.init(base_allocator);
     errdefer arena.deinit();
 

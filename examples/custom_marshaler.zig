@@ -33,7 +33,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var parsed = try zjson.parseToArena("\"#FF5733\"", allocator, .{});
+    var parsed = try zjson.parse("\"#FF5733\"", allocator, .{});
     defer parsed.deinit();
 
     const color = try zjson.unmarshalWithCustom(Color, parsed.value, allocator);

@@ -74,7 +74,7 @@ test "detect custom unmarshal method" {
 test "unmarshal hex colors" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
-            var single = try zjson.parseToArena("\"#FF5733\"", allocator, .{});
+            var single = try zjson.parse("\"#FF5733\"", allocator, .{});
             defer single.deinit();
             const color = try zjson.unmarshalWithCustom(Color, single.value, allocator);
             try std.testing.expect(color.r == 0xFF and color.g == 0x57 and color.b == 0x33);
@@ -87,7 +87,7 @@ test "unmarshal hex colors" {
             };
 
             inline for (colors) |test_color| {
-                var value = try zjson.parseToArena(test_color.json, allocator, .{});
+                var value = try zjson.parse(test_color.json, allocator, .{});
                 defer value.deinit();
                 const parsed = try zjson.unmarshalWithCustom(Color, value.value, allocator);
                 try std.testing.expect(parsed.r == test_color.r);
@@ -111,7 +111,7 @@ test "type without custom unmarshal" {
 test "UUID custom unmarshal" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
-            var value = try zjson.parseToArena("\"123e4567-e89b-12d3-a456-426614174000\"", allocator, .{});
+            var value = try zjson.parse("\"123e4567-e89b-12d3-a456-426614174000\"", allocator, .{});
             defer value.deinit();
             const uuid = try zjson.unmarshalWithCustom(UUID, value.value, allocator);
             try std.testing.expect(uuid.data[0] == 0xAB);
@@ -122,7 +122,7 @@ test "UUID custom unmarshal" {
 test "invalid hex color error handling" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
-            var value = try zjson.parseToArena("\"INVALID\"", allocator, .{});
+            var value = try zjson.parse("\"INVALID\"", allocator, .{});
             defer value.deinit();
             const result = zjson.unmarshalWithCustom(Color, value.value, allocator);
             try std.testing.expectError(zjson.Error.InvalidSyntax, result);

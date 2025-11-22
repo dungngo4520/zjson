@@ -118,7 +118,7 @@ test "parse deeply nested arrays" {
                 try source.append(std.testing.allocator, ']');
             }
 
-            var parsed = try zjson.parseToArena(source.items, allocator, .{});
+            var parsed = try zjson.parse(source.items, allocator, .{});
             defer parsed.deinit();
 
             var current = parsed.value;
@@ -192,7 +192,7 @@ test "parse errors" {
             };
 
             inline for (cases) |case| {
-                try std.testing.expectError(case.err, zjson.parseToArena(case.json, allocator, case.options));
+                try std.testing.expectError(case.err, zjson.parse(case.json, allocator, case.options));
             }
         }
     }.run);
@@ -202,7 +202,7 @@ test "parse error info" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const bad = "{\n  \"a\": 1,\n  \"b\":\n}";
-            try std.testing.expectError(zjson.Error.InvalidSyntax, zjson.parseToArena(bad, allocator, .{}));
+            try std.testing.expectError(zjson.Error.InvalidSyntax, zjson.parse(bad, allocator, .{}));
             const info_opt = zjson.lastParseErrorInfo();
             try std.testing.expect(info_opt != null);
             const info = info_opt.?;

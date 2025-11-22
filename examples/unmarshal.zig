@@ -20,7 +20,7 @@ pub fn main() !void {
         \\}
     ;
 
-    var parsed = try zjson.parseToArena(json, allocator, .{});
+    var parsed = try zjson.parse(json, allocator, .{});
     defer parsed.deinit();
 
     const profile = try zjson.unmarshal(Profile, parsed.value, allocator);

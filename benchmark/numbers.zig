@@ -37,7 +37,7 @@ const BenchmarkResult = struct {
 fn compare(json: []const u8, allocator: std.mem.Allocator, iterations: usize) !BenchmarkResult {
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        var parsed = try zjson.parseToArena(json, allocator, .{});
+        var parsed = try zjson.parse(json, allocator, .{});
         parsed.deinit();
     }
     const zjson_time = timer.read() / iterations / 1000;

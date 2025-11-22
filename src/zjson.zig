@@ -17,7 +17,7 @@ pub const ParseErrorInfo = value.ParseErrorInfo;
 pub const marshal = marshaler.marshal;
 pub const marshalAlloc = marshaler.marshalAlloc;
 
-pub const parseToArena = parser.parseToArena;
+pub const parse = parser.parse;
 pub const lastParseErrorInfo = parser.lastParseErrorInfo;
 pub const writeParseErrorIndicator = parser.writeParseErrorIndicator;
 
