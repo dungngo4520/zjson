@@ -274,8 +274,42 @@ const FastParser = struct {
                         if (i + 3 >= end) return self.fail(Error.InvalidEscape);
                         const hex = self.input[i .. i + 4];
                         const codepoint = std.fmt.parseInt(u16, hex, 16) catch return self.fail(Error.InvalidEscape);
-                        try result.append(self.arena, @intCast(codepoint));
-                        i += 3;
+
+                        // Check if this is a high surrogate (0xD800-0xDBFF)
+                        if (codepoint >= 0xD800 and codepoint <= 0xDBFF) {
+                            // Need to parse the low surrogate
+                            i += 4;
+                            if (i + 5 >= end or self.input[i] != '\\' or self.input[i + 1] != 'u') {
+                                return self.fail(Error.InvalidEscape);
+                            }
+                            i += 2;
+                            if (i + 3 >= end) return self.fail(Error.InvalidEscape);
+                            const low_hex = self.input[i .. i + 4];
+                            const low_codepoint = std.fmt.parseInt(u16, low_hex, 16) catch return self.fail(Error.InvalidEscape);
+
+                            // Verify it's a valid low surrogate (0xDC00-0xDFFF)
+                            if (low_codepoint < 0xDC00 or low_codepoint > 0xDFFF) {
+                                return self.fail(Error.InvalidEscape);
+                            }
+
+                            // Combine surrogates into a single codepoint
+                            const full_codepoint: u21 = 0x10000 + ((@as(u21, codepoint) - 0xD800) << 10) + (@as(u21, low_codepoint) - 0xDC00);
+
+                            // Encode as UTF-8
+                            var utf8_buf: [4]u8 = undefined;
+                            const utf8_len = std.unicode.utf8Encode(full_codepoint, &utf8_buf) catch return self.fail(Error.InvalidEscape);
+                            try result.appendSlice(self.arena, utf8_buf[0..utf8_len]);
+                            i += 3;
+                        } else if (codepoint >= 0xDC00 and codepoint <= 0xDFFF) {
+                            // Lone low surrogate - invalid
+                            return self.fail(Error.InvalidEscape);
+                        } else {
+                            // Regular codepoint - encode as UTF-8
+                            var utf8_buf: [4]u8 = undefined;
+                            const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch return self.fail(Error.InvalidEscape);
+                            try result.appendSlice(self.arena, utf8_buf[0..utf8_len]);
+                            i += 3;
+                        }
                     },
                     else => return self.fail(Error.InvalidEscape),
                 }
