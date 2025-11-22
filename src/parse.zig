@@ -184,17 +184,46 @@ const FastParser = struct {
             self.advance(1);
         }
 
+        // Integer part
         if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
             return self.fail(Error.InvalidNumber);
         }
 
-        // Fast number scanning
-        while (self.pos < self.input.len) {
-            const c = self.input[self.pos];
-            if (std.ascii.isDigit(c) or c == '.' or c == 'e' or c == 'E' or c == '+' or c == '-') {
+        // Leading zero must not be followed by digit
+        if (self.input[self.pos] == '0') {
+            self.advance(1);
+            if (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
+                return self.fail(Error.InvalidNumber);
+            }
+        } else {
+            // Consume digits
+            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
                 self.advance(1);
-            } else {
-                break;
+            }
+        }
+
+        // Fractional part
+        if (self.pos < self.input.len and self.input[self.pos] == '.') {
+            self.advance(1);
+            if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
+                return self.fail(Error.InvalidNumber);
+            }
+            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
+                self.advance(1);
+            }
+        }
+
+        // Exponent part
+        if (self.pos < self.input.len and (self.input[self.pos] == 'e' or self.input[self.pos] == 'E')) {
+            self.advance(1);
+            if (self.pos < self.input.len and (self.input[self.pos] == '+' or self.input[self.pos] == '-')) {
+                self.advance(1);
+            }
+            if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
+                return self.fail(Error.InvalidNumber);
+            }
+            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
+                self.advance(1);
             }
         }
 
@@ -243,6 +272,9 @@ const FastParser = struct {
                 } else {
                     self.advance(1);
                 }
+            } else if (c < 0x20) {
+                // Control characters (0x00-0x1F) must be escaped
+                return error.UnexpectedEnd; // Reuse this error for invalid control char
             } else {
                 self.advance(1);
             }
@@ -578,7 +610,8 @@ const FastParser = struct {
     inline fn skipWhitespace(self: *FastParser) void {
         while (self.pos < self.input.len) {
             const c = self.input[self.pos];
-            if (std.ascii.isWhitespace(c)) {
+            // JSON only allows: space (0x20), tab (0x09), newline (0x0A), carriage return (0x0D)
+            if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
                 self.advance(1);
             } else if (self.options.allow_comments and c == '/') {
                 if (self.pos + 1 < self.input.len) {
