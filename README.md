@@ -65,15 +65,18 @@ See `examples/` directory. Run with `zig build examples`.
 
 Benchmarks vs `std.json.parseFromSlice` (Zig 0.15.0, ReleaseFast):
 
-| Benchmark | Count | zjson | std.json | Speedup |
+| Benchmark | Input | zjson | std.json | Speedup |
 |-----------|-------|-------|----------|---------|
-| **Numbers** | 1,000 | 391µs | 1,680µs | 4.3× |
-| **Numbers** | 10,000 | 3.1ms | 22.1ms | 7.1× |
-| **Strings** | 1,000 | 604µs | 2,083µs | 3.5× |
-| **Objects** | 100 | 333µs | 947µs | 2.8× |
-| **Nested (depth 1000)** | — | 1.4ms | 3.2ms | 2.2× |
+| **Strings** | 100 strings | 208µs | 334µs | 1.61× |
+| **Strings** | 1,000 strings | 1,243µs | 1,977µs | 1.59× |
+| **Strings** | 5,000 strings | 5,499µs | 10,005µs | 1.82× |
+| **Objects** | 10 objects | 115µs | 220µs | 1.91× |
+| **Objects** | 100 objects | 577µs | 932µs | 1.62× |
+| **Objects** | 100-field object | 253µs | 499µs | 1.97× |
+| **Objects** | 50-field object | 151µs | 340µs | 2.25× |
+| **Multi-field object** | 10 fields | 66µs | 158µs | 2.39× |
 
-Times are microseconds per parse. Hardware/Zig version variations expected.
+Times are microseconds per parse. Optimization phases completed: Phase 1 (generic lexer architecture). Hardware/Zig version variations expected. Stack-based parsing provides excellent performance on typical JSON structures.
 
 ## License
 
