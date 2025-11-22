@@ -1,5 +1,6 @@
 const std = @import("std");
 const value_mod = @import("value.zig");
+const escape = @import("escape.zig");
 
 /// Compile-time JSON serialization with options
 /// Usage: marshal(value, options)
@@ -38,7 +39,7 @@ fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime i
         .@"enum" => {
             const tag_name = @tagName(value);
             if (is_comptime) {
-                return _escapeStringComptime(tag_name);
+                return escape.escapeStringComptime(tag_name);
             } else {
                 return _escapeStringAlloc(tag_name, allocator);
             }
@@ -69,7 +70,7 @@ fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime i
             if (ptr_info.child == u8 or (@typeInfo(ptr_info.child) == .array and @typeInfo(ptr_info.child).array.child == u8)) {
                 const str: []const u8 = value;
                 if (is_comptime) {
-                    return _escapeStringComptime(str);
+                    return escape.escapeStringComptime(str);
                 } else {
                     return _escapeStringAlloc(str, allocator);
                 }
@@ -116,10 +117,10 @@ fn _formatFieldHelper(comptime key: []const u8, comptime value: []const u8, comp
         inline for (0..options.indent) |_| {
             result = result ++ " ";
         }
-        result = result ++ _escapeStringComptime(key) ++ ": " ++ value;
+        result = result ++ escape.escapeStringComptime(key) ++ ": " ++ value;
         return result;
     } else {
-        return _escapeStringComptime(key) ++ ":" ++ value;
+        return escape.escapeStringComptime(key) ++ ":" ++ value;
     }
 }
 
@@ -158,29 +159,6 @@ fn _formatItemComptime(comptime value: []const u8, comptime options: value_mod.M
     } else {
         return value;
     }
-}
-
-fn _escapeStringComptime(s: []const u8) []const u8 {
-    comptime var result: []const u8 = "\"";
-    inline for (s) |c| {
-        result = result ++ _escapeCharComptime(c);
-    }
-    result = result ++ "\"";
-    return result;
-}
-
-fn _escapeCharComptime(comptime c: u8) []const u8 {
-    return switch (c) {
-        '"' => "\\\"",
-        '\\' => "\\\\",
-        '\n' => "\\n",
-        '\r' => "\\r",
-        '\t' => "\\t",
-        '\x08' => "\\b",
-        '\x0C' => "\\f",
-        '/' => "\\/",
-        else => if (c < 0x20) std.fmt.comptimePrint("\\u{X:0>4}", .{c}) else &[_]u8{c},
-    };
 }
 
 fn _marshalStructAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
@@ -265,6 +243,15 @@ fn _appendFieldAlloc(buffer: *std.array_list.Managed(u8), key: []const u8, value
     try buffer.appendSlice(value);
 }
 
+// Wrapper to maintain API compatibility - allocates and returns escaped string
+fn _escapeStringAlloc(s: []const u8, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+    var buffer = std.ArrayList(u8){};
+    errdefer buffer.deinit(allocator);
+
+    try escape.writeEscapedToArrayList(&buffer, allocator, s);
+    return buffer.toOwnedSlice(allocator);
+}
+
 fn _appendIndentAlloc(buffer: *std.array_list.Managed(u8), options: value_mod.MarshalOptions) std.mem.Allocator.Error!void {
     for (0..options.indent) |_| {
         try buffer.append(' ');
@@ -303,40 +290,4 @@ fn _appendItemAlloc(buffer: *std.array_list.Managed(u8), value: []const u8, opti
     }
 
     try buffer.appendSlice(value);
-}
-
-fn _escapeStringAlloc(s: []const u8, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    errdefer buffer.deinit();
-
-    try buffer.append('"');
-
-    for (s) |c| {
-        try _escapeCharAlloc(&buffer, c);
-    }
-
-    try buffer.append('"');
-    return buffer.toOwnedSlice();
-}
-
-fn _escapeCharAlloc(buffer: *std.array_list.Managed(u8), c: u8) std.mem.Allocator.Error!void {
-    switch (c) {
-        '"' => try buffer.appendSlice("\\\""),
-        '\\' => try buffer.appendSlice("\\\\"),
-        '\n' => try buffer.appendSlice("\\n"),
-        '\r' => try buffer.appendSlice("\\r"),
-        '\t' => try buffer.appendSlice("\\t"),
-        '\x08' => try buffer.appendSlice("\\b"),
-        '\x0C' => try buffer.appendSlice("\\f"),
-        '/' => try buffer.appendSlice("\\/"),
-        else => {
-            if (c < 0x20) {
-                var buf: [6]u8 = undefined;
-                const formatted = std.fmt.bufPrint(&buf, "\\u{X:0>4}", .{c}) catch unreachable;
-                try buffer.appendSlice(formatted);
-            } else {
-                try buffer.append(c);
-            }
-        },
-    }
 }

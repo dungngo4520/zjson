@@ -1,5 +1,6 @@
 const std = @import("std");
 const value_mod = @import("value.zig");
+const lexer_mod = @import("lexer.zig");
 
 pub const Error = value_mod.Error;
 pub const Value = value_mod.Value;
@@ -61,11 +62,10 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
 
     last_parse_error_info = null;
 
+    const lexer = lexer_mod.Lexer(void).initSlice(input, arena.allocator());
+
     var parser = FastParser{
-        .input = input,
-        .pos = 0,
-        .line = 1,
-        .column = 1,
+        .lexer = lexer,
         .arena = arena.allocator(),
         .options = options,
         .last_error_info = null,
@@ -74,8 +74,8 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
     const value = try parser.parseValue();
 
     // Check for trailing content
-    parser.skipWhitespace();
-    if (parser.pos < parser.input.len) {
+    try parser.skipWhitespace();
+    if (try parser.lexer.input.hasMore(parser.lexer.allocator)) {
         return parser.fail(Error.TrailingCharacters);
     }
 
@@ -88,19 +88,16 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
 
 /// Fast parser using arena allocator
 const FastParser = struct {
-    input: []const u8,
-    pos: usize,
-    line: usize,
-    column: usize,
+    lexer: lexer_mod.Lexer(void),
     arena: std.mem.Allocator,
     options: ParseOptions,
     last_error_info: ?value_mod.ParseErrorInfo = null,
 
     fn parseValue(self: *FastParser) Error!Value {
-        self.skipWhitespace();
-        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+        try self.skipWhitespace();
+        const c = (try self.lexer.input.peek(self.lexer.allocator)) orelse return self.fail(Error.UnexpectedEnd);
 
-        return switch (self.input[self.pos]) {
+        return switch (c) {
             'n' => self.parseNull(),
             't', 'f' => self.parseBool(),
             '"' => self.parseString(),
@@ -111,26 +108,13 @@ const FastParser = struct {
         };
     }
 
-    inline fn advance(self: *FastParser, count: usize) void {
-        var moved: usize = 0;
-        while (moved < count and self.pos < self.input.len) : (moved += 1) {
-            const c = self.input[self.pos];
-            self.pos += 1;
-            if (c == '\n') {
-                self.line += 1;
-                self.column = 1;
-            } else {
-                self.column += 1;
-            }
-        }
-    }
-
     inline fn fail(self: *FastParser, err: Error) Error {
+        const pos = self.lexer.position;
         const ctx = self.sliceContext();
         const info = value_mod.ParseErrorInfo{
-            .byte_offset = self.pos,
-            .line = self.line,
-            .column = self.column,
+            .byte_offset = pos.byte_offset,
+            .line = pos.line,
+            .column = pos.column,
             .context = ctx.slice,
             .context_offset = ctx.start,
         };
@@ -146,217 +130,107 @@ const FastParser = struct {
 
     fn sliceContext(self: *FastParser) ContextSlice {
         const window: usize = 24;
-        const start = if (self.pos > window) self.pos - window else 0;
-        const end = @min(self.input.len, self.pos + window);
-        return ContextSlice{ .slice = self.input[start..end], .start = start };
+        const pos = self.lexer.position.byte_offset;
+        const input = switch (self.lexer.input) {
+            .slice => |*s| s.data,
+            else => unreachable, // FastParser only uses slice input
+        };
+        const start = if (pos > window) pos - window else 0;
+        const end = @min(input.len, pos + window);
+        return ContextSlice{ .slice = input[start..end], .start = start };
     }
 
     inline fn parseNull(self: *FastParser) Error!Value {
-        if (self.pos + 4 > self.input.len or
-            !std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "null"))
-        {
-            return self.fail(Error.InvalidSyntax);
-        }
-        self.advance(4);
+        self.lexer.expectLiteral("null") catch return self.fail(Error.InvalidSyntax);
         return Value.Null;
     }
 
     inline fn parseBool(self: *FastParser) Error!Value {
-        if (self.pos + 4 <= self.input.len and
-            std.mem.eql(u8, self.input[self.pos .. self.pos + 4], "true"))
-        {
-            self.advance(4);
+        const c = (try self.lexer.input.peek(self.lexer.allocator)) orelse return self.fail(Error.InvalidSyntax);
+        if (c == 't') {
+            self.lexer.expectLiteral("true") catch return self.fail(Error.InvalidSyntax);
             return Value{ .Bool = true };
-        } else if (self.pos + 5 <= self.input.len and
-            std.mem.eql(u8, self.input[self.pos .. self.pos + 5], "false"))
-        {
-            self.advance(5);
+        } else {
+            self.lexer.expectLiteral("false") catch return self.fail(Error.InvalidSyntax);
             return Value{ .Bool = false };
         }
-        return self.fail(Error.InvalidSyntax);
     }
 
     fn parseNumber(self: *FastParser) Error!Value {
-        const start = self.pos;
-
-        // Optional minus
-        if (self.pos < self.input.len and self.input[self.pos] == '-') {
-            self.advance(1);
-        }
-
-        // Integer part
-        if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
-            return self.fail(Error.InvalidNumber);
-        }
-
-        // Leading zero must not be followed by digit
-        if (self.input[self.pos] == '0') {
-            self.advance(1);
-            if (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
-                return self.fail(Error.InvalidNumber);
-            }
-        } else {
-            // Consume digits
-            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
-                self.advance(1);
-            }
-        }
-
-        // Fractional part
-        if (self.pos < self.input.len and self.input[self.pos] == '.') {
-            self.advance(1);
-            if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
-                return self.fail(Error.InvalidNumber);
-            }
-            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
-                self.advance(1);
-            }
-        }
-
-        // Exponent part
-        if (self.pos < self.input.len and (self.input[self.pos] == 'e' or self.input[self.pos] == 'E')) {
-            self.advance(1);
-            if (self.pos < self.input.len and (self.input[self.pos] == '+' or self.input[self.pos] == '-')) {
-                self.advance(1);
-            }
-            if (self.pos >= self.input.len or !std.ascii.isDigit(self.input[self.pos])) {
-                return self.fail(Error.InvalidNumber);
-            }
-            while (self.pos < self.input.len and std.ascii.isDigit(self.input[self.pos])) {
-                self.advance(1);
-            }
-        }
-
-        return Value{ .Number = self.input[start..self.pos] };
+        const num_str = self.lexer.parseNumber() catch |err| return self.fail(err);
+        // Numbers from lexer are always allocated, but we want to borrow from input
+        // So we need to find the slice in the original input
+        // For arena allocation, we can just use the allocated string from lexer
+        return Value{ .Number = num_str };
     }
 
     fn parseString(self: *FastParser) Error!Value {
-        if (self.input[self.pos] != '"') return self.fail(Error.InvalidSyntax);
-        self.advance(1);
-
-        const start = self.pos;
-        const result = self.scanString() catch |err| switch (err) {
-            error.UnexpectedEnd => return self.fail(Error.UnexpectedEnd),
-        };
-
-        if (result.has_escapes) {
-            return Value{ .String = try self.unescapeString(start, result.end) };
-        } else {
-            // Zero-copy string
-            return Value{ .String = self.input[start..result.end] };
-        }
+        const str_result = self.lexer.parseString() catch |err| return self.fail(err);
+        // str_result.data is either borrowed (slice input) or allocated (buffered input)
+        // Since FastParser uses arena, we can use it directly if borrowed,
+        // or transfer ownership if allocated
+        return Value{ .String = str_result.data };
     }
 
-    const StringScanResult = struct {
-        end: usize,
-        has_escapes: bool,
-    };
-
-    fn scanString(self: *FastParser) !StringScanResult {
-        var has_escapes = false;
-
-        while (self.pos < self.input.len) {
-            const c = self.input[self.pos];
-
-            if (c == '"') {
-                const end = self.pos;
-                self.advance(1);
-                return StringScanResult{ .end = end, .has_escapes = has_escapes };
-            } else if (c == '\\') {
-                has_escapes = true;
-                self.advance(1);
-                if (self.pos >= self.input.len) return error.UnexpectedEnd;
-
-                if (self.input[self.pos] == 'u') {
-                    self.advance(5); // Skip u + 4 hex digits
-                } else {
-                    self.advance(1);
-                }
-            } else if (c < 0x20) {
-                // Control characters (0x00-0x1F) must be escaped
-                return error.UnexpectedEnd; // Reuse this error for invalid control char
-            } else {
-                self.advance(1);
-            }
-        }
-
-        return error.UnexpectedEnd;
+    // Helper methods for lexer access
+    inline fn peek(self: *FastParser) !?u8 {
+        return try self.lexer.input.peek(self.lexer.allocator);
     }
 
-    fn unescapeString(self: *FastParser, start: usize, end: usize) ![]const u8 {
-        var result = try std.ArrayList(u8).initCapacity(self.arena, end - start);
+    inline fn advance(self: *FastParser, count: usize) void {
+        self.lexer.input.advance(&self.lexer.position, count);
+    }
 
-        var i = start;
-        while (i < end) {
-            if (self.input[i] == '\\') {
-                i += 1;
-                if (i >= end) return self.fail(Error.InvalidEscape);
-
-                switch (self.input[i]) {
-                    '"' => try result.append(self.arena, '"'),
-                    '\\' => try result.append(self.arena, '\\'),
-                    '/' => try result.append(self.arena, '/'),
-                    'b' => try result.append(self.arena, '\x08'),
-                    'f' => try result.append(self.arena, '\x0C'),
-                    'n' => try result.append(self.arena, '\n'),
-                    'r' => try result.append(self.arena, '\r'),
-                    't' => try result.append(self.arena, '\t'),
-                    'u' => {
-                        i += 1;
-                        if (i + 3 >= end) return self.fail(Error.InvalidEscape);
-                        const hex = self.input[i .. i + 4];
-                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch return self.fail(Error.InvalidEscape);
-
-                        // Check if this is a high surrogate (0xD800-0xDBFF)
-                        if (codepoint >= 0xD800 and codepoint <= 0xDBFF) {
-                            // Need to parse the low surrogate
-                            i += 4;
-                            if (i + 5 >= end or self.input[i] != '\\' or self.input[i + 1] != 'u') {
-                                return self.fail(Error.InvalidEscape);
-                            }
-                            i += 2;
-                            if (i + 3 >= end) return self.fail(Error.InvalidEscape);
-                            const low_hex = self.input[i .. i + 4];
-                            const low_codepoint = std.fmt.parseInt(u16, low_hex, 16) catch return self.fail(Error.InvalidEscape);
-
-                            // Verify it's a valid low surrogate (0xDC00-0xDFFF)
-                            if (low_codepoint < 0xDC00 or low_codepoint > 0xDFFF) {
-                                return self.fail(Error.InvalidEscape);
-                            }
-
-                            // Combine surrogates into a single codepoint
-                            const full_codepoint: u21 = 0x10000 + ((@as(u21, codepoint) - 0xD800) << 10) + (@as(u21, low_codepoint) - 0xDC00);
-
-                            // Encode as UTF-8
-                            var utf8_buf: [4]u8 = undefined;
-                            const utf8_len = std.unicode.utf8Encode(full_codepoint, &utf8_buf) catch return self.fail(Error.InvalidEscape);
-                            try result.appendSlice(self.arena, utf8_buf[0..utf8_len]);
-                            i += 3;
-                        } else if (codepoint >= 0xDC00 and codepoint <= 0xDFFF) {
-                            // Lone low surrogate - invalid
-                            return self.fail(Error.InvalidEscape);
-                        } else {
-                            // Regular codepoint - encode as UTF-8
-                            var utf8_buf: [4]u8 = undefined;
-                            const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch return self.fail(Error.InvalidEscape);
-                            try result.appendSlice(self.arena, utf8_buf[0..utf8_len]);
-                            i += 3;
+    inline fn skipWhitespace(self: *FastParser) !void {
+        try self.lexer.skipWhitespace();
+        // Handle comments if enabled
+        if (self.options.allow_comments) {
+            while (true) {
+                const c = (try self.peek()) orelse break;
+                if (c == '/') {
+                    const next = blk: {
+                        const old_pos = self.lexer.input.currentPos();
+                        self.advance(1);
+                        const result = try self.peek();
+                        // Reset position
+                        switch (self.lexer.input) {
+                            .slice => |*s| s.pos = old_pos,
+                            .buffered => |*b| b.pos = old_pos,
                         }
-                    },
-                    else => return self.fail(Error.InvalidEscape),
+                        self.lexer.position.byte_offset = old_pos;
+                        break :blk result;
+                    } orelse break;
+
+                    if (next == '/') {
+                        // Line comment
+                        self.advance(2);
+                        while (try self.peek()) |ch| {
+                            if (ch == '\n') break;
+                            self.advance(1);
+                        }
+                        try self.lexer.skipWhitespace();
+                    } else if (next == '*') {
+                        // Block comment
+                        self.advance(2);
+                        while (true) {
+                            const ch = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                            self.advance(1);
+                            if (ch == '*') {
+                                if ((try self.peek()) == '/') {
+                                    self.advance(1);
+                                    break;
+                                }
+                            }
+                        }
+                        try self.lexer.skipWhitespace();
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
                 }
-                i += 1;
-            } else {
-                // Batch copy normal characters
-                const batch_start = i;
-                while (i < end and self.input[i] != '\\') {
-                    i += 1;
-                }
-                try result.appendSlice(self.arena, self.input[batch_start..i]);
             }
         }
-
-        return result.toOwnedSlice(self.arena);
     }
 
     fn parseArray(self: *FastParser) Error!Value {
@@ -406,14 +280,14 @@ const FastParser = struct {
         }
 
         while (stack.items.len > 0) {
-            self.skipWhitespace();
+            try self.skipWhitespace();
             const idx = stack.items.len - 1;
             switch (stack.items[idx]) {
                 .array => |*arr| {
                     if (arr.expect_value) {
-                        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+                        const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
 
-                        if (self.input[self.pos] == ']') {
+                        if (c == ']') {
                             if (arr.seen_value and !self.options.allow_trailing_commas) {
                                 return self.fail(Error.InvalidSyntax);
                             }
@@ -435,8 +309,7 @@ const FastParser = struct {
                         continue;
                     }
 
-                    if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
-                    const c = self.input[self.pos];
+                    const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
                     if (c == ',') {
                         self.advance(1);
                         arr.expect_value = true;
@@ -456,9 +329,9 @@ const FastParser = struct {
                 .object => |*obj| {
                     switch (obj.state) {
                         .expect_key_or_end => {
-                            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+                            const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
 
-                            if (self.input[self.pos] == '}') {
+                            if (c == '}') {
                                 if (obj.awaiting_key_after_comma and !self.options.allow_trailing_commas) {
                                     return self.fail(Error.InvalidSyntax);
                                 }
@@ -483,9 +356,8 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_colon => {
-                            if (self.pos >= self.input.len or self.input[self.pos] != ':') {
-                                return self.fail(Error.InvalidSyntax);
-                            }
+                            const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+                            if (c != ':') return self.fail(Error.InvalidSyntax);
                             self.advance(1);
                             obj.state = .expect_value;
                             continue;
@@ -501,8 +373,7 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_comma_or_end => {
-                            if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
-                            const c = self.input[self.pos];
+                            const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
                             if (c == ',') {
                                 self.advance(1);
                                 obj.state = .expect_key_or_end;
@@ -529,9 +400,8 @@ const FastParser = struct {
     }
 
     fn pushArrayFrame(self: *FastParser, stack: *FrameStack) Error!void {
-        if (self.pos >= self.input.len or self.input[self.pos] != '[') {
-            return self.fail(Error.InvalidSyntax);
-        }
+        const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+        if (c != '[') return self.fail(Error.InvalidSyntax);
         self.advance(1);
         const frame = StackFrame{
             .array = .{
@@ -544,9 +414,8 @@ const FastParser = struct {
     }
 
     fn pushObjectFrame(self: *FastParser, stack: *FrameStack) Error!void {
-        if (self.pos >= self.input.len or self.input[self.pos] != '{') {
-            return self.fail(Error.InvalidSyntax);
-        }
+        const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+        if (c != '{') return self.fail(Error.InvalidSyntax);
         self.advance(1);
         const frame = StackFrame{
             .object = .{
@@ -560,9 +429,9 @@ const FastParser = struct {
     }
 
     fn beginValue(self: *FastParser, stack: *FrameStack) Error!?Value {
-        if (self.pos >= self.input.len) return self.fail(Error.UnexpectedEnd);
+        const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
 
-        return switch (self.input[self.pos]) {
+        return switch (c) {
             '[' => blk: {
                 try self.pushArrayFrame(stack);
                 break :blk null;
@@ -604,42 +473,6 @@ const FastParser = struct {
                 obj.pending_key = null;
                 obj.state = .expect_comma_or_end;
             },
-        }
-    }
-
-    inline fn skipWhitespace(self: *FastParser) void {
-        while (self.pos < self.input.len) {
-            const c = self.input[self.pos];
-            // JSON only allows: space (0x20), tab (0x09), newline (0x0A), carriage return (0x0D)
-            if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
-                self.advance(1);
-            } else if (self.options.allow_comments and c == '/') {
-                if (self.pos + 1 < self.input.len) {
-                    if (self.input[self.pos + 1] == '/') {
-                        // Line comment - skip to end of line
-                        self.advance(2);
-                        while (self.pos < self.input.len and self.input[self.pos] != '\n') {
-                            self.advance(1);
-                        }
-                    } else if (self.input[self.pos + 1] == '*') {
-                        // Block comment - skip to */
-                        self.advance(2);
-                        while (self.pos + 1 < self.input.len) {
-                            if (self.input[self.pos] == '*' and self.input[self.pos + 1] == '/') {
-                                self.advance(2);
-                                break;
-                            }
-                            self.advance(1);
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
         }
     }
 };
