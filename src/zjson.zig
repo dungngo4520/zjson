@@ -23,9 +23,13 @@ pub const parse = parse_mod.parse;
 pub const lastParseErrorInfo = parse_mod.lastParseErrorInfo;
 pub const writeParseErrorIndicator = parse_mod.writeParseErrorIndicator;
 
-// Lexer module (for advanced use and testing)
-pub const Lexer = lexer_mod.Lexer;
+// Lexer types (for advanced use and testing)
+pub const SliceLexer = lexer_mod.SliceLexer;
+pub const BufferedLexer = lexer_mod.BufferedLexer;
+pub const SliceInput = lexer_mod.SliceInput;
+pub const BufferedInput = lexer_mod.BufferedInput;
 pub const Position = lexer_mod.Position;
+pub const StringResult = lexer_mod.StringResult;
 pub const LexerError = lexer_mod.Error;
 
 // Escape utilities (for advanced use and testing)

@@ -7,7 +7,8 @@ test "lexer: parse simple string (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"hello world\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -24,7 +25,8 @@ test "lexer: parse string with escapes (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"hello\\nworld\\t\\\"quoted\\\"\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -43,7 +45,8 @@ test "lexer: parse string with surrogate pair (slice)" {
             // UTF-16 surrogate pair for 😀 (U+1F600)
             // High: 0xD83D, Low: 0xDE00
             const input = "\"\\uD83D\\uDE00\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -61,7 +64,8 @@ test "lexer: parse string with invalid surrogate pair (slice)" {
         fn run(allocator: std.mem.Allocator) !void {
             // High surrogate without low surrogate
             const input = "\"\\uD83D\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.parseString();
             try std.testing.expectError(zjson.LexerError.InvalidEscape, result);
@@ -75,7 +79,8 @@ test "lexer: parse string with lone low surrogate (slice)" {
         fn run(allocator: std.mem.Allocator) !void {
             // Low surrogate without high surrogate
             const input = "\"\\uDE00\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.parseString();
             try std.testing.expectError(zjson.LexerError.InvalidEscape, result);
@@ -88,7 +93,8 @@ test "lexer: parse string with unicode escape (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"\\u0041\\u0042\\u0043\""; // ABC
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -104,7 +110,8 @@ test "lexer: parse string with control character (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"hello\x01world\""; // Control character
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.parseString();
             try std.testing.expectError(zjson.LexerError.InvalidSyntax, result);
@@ -117,7 +124,8 @@ test "lexer: parse unterminated string (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"hello world";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.parseString();
             try std.testing.expectError(zjson.LexerError.UnexpectedEnd, result);
@@ -130,7 +138,8 @@ test "lexer: parse integer (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "42";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -145,7 +154,8 @@ test "lexer: parse negative integer (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "-123";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -160,7 +170,8 @@ test "lexer: parse zero (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "0";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -175,7 +186,8 @@ test "lexer: parse float (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "3.14159";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -190,7 +202,8 @@ test "lexer: parse number with exponent (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "1.5e10";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -205,7 +218,8 @@ test "lexer: parse number with negative exponent (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "2.5E-3";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);
@@ -220,14 +234,14 @@ test "lexer: parse invalid number with leading zero (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "01";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
-            const num = try lexer.parseNumber(); // Parse "0"
+            const num = try lexer.parseNumber();
             defer allocator.free(num);
 
-            // Position should be at '1', which would cause error if we try to parse more
-            const has_more = try lexer.input.hasMore(allocator);
-            try std.testing.expect(has_more); // '1' is still there
+            const has_more = lexer.input.hasMore();
+            try std.testing.expect(has_more);
         }
     }.run);
 }
@@ -237,7 +251,8 @@ test "lexer: parse number with invalid fractional (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "1.";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.parseNumber();
             try std.testing.expectError(zjson.LexerError.InvalidNumber, result);
@@ -250,11 +265,12 @@ test "lexer: skip whitespace (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "   \t\n\r  42";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             try lexer.skipWhitespace();
 
-            const c = try lexer.input.peek(allocator);
+            const c = lexer.input.peek();
             try std.testing.expectEqual(@as(u8, '4'), c.?);
         }
     }.run);
@@ -265,11 +281,12 @@ test "lexer: expect literal null (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "null";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             try lexer.expectLiteral("null");
 
-            const has_more = try lexer.input.hasMore(allocator);
+            const has_more = lexer.input.hasMore();
             try std.testing.expect(!has_more);
         }
     }.run);
@@ -280,11 +297,12 @@ test "lexer: expect literal true (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "true";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             try lexer.expectLiteral("true");
 
-            const has_more = try lexer.input.hasMore(allocator);
+            const has_more = lexer.input.hasMore();
             try std.testing.expect(!has_more);
         }
     }.run);
@@ -295,11 +313,12 @@ test "lexer: expect literal false (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "false";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             try lexer.expectLiteral("false");
 
-            const has_more = try lexer.input.hasMore(allocator);
+            const has_more = lexer.input.hasMore();
             try std.testing.expect(!has_more);
         }
     }.run);
@@ -310,7 +329,8 @@ test "lexer: expect literal mismatch (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "nope";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = lexer.expectLiteral("null");
             try std.testing.expectError(zjson.LexerError.InvalidSyntax, result);
@@ -323,14 +343,26 @@ test "lexer: position tracking (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "hello\nworld";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             try std.testing.expectEqual(@as(usize, 1), lexer.position.line);
             try std.testing.expectEqual(@as(usize, 1), lexer.position.column);
             try std.testing.expectEqual(@as(usize, 0), lexer.position.byte_offset);
 
-            // Advance 6 characters (including newline)
-            lexer.input.advance(&lexer.position, 6);
+            var i: usize = 0;
+            while (i < 6) : (i += 1) {
+                if (lexer.input.peek()) |c| {
+                    lexer.input.advance();
+                    if (c == '\n') {
+                        lexer.position.line += 1;
+                        lexer.position.column = 1;
+                    } else {
+                        lexer.position.column += 1;
+                    }
+                    lexer.position.byte_offset += 1;
+                }
+            }
 
             try std.testing.expectEqual(@as(usize, 2), lexer.position.line);
             try std.testing.expectEqual(@as(usize, 1), lexer.position.column);
@@ -345,7 +377,8 @@ test "lexer: parse string with buffered input" {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"hello world\"";
             var fbs = std.io.fixedBufferStream(input);
-            var lexer = zjson.Lexer(@TypeOf(fbs.reader())).initBuffered(fbs.reader(), allocator);
+            const buffered_input = zjson.BufferedInput(@TypeOf(fbs.reader())).init(fbs.reader());
+            var lexer = zjson.BufferedLexer(@TypeOf(fbs.reader())).init(buffered_input, allocator);
             defer lexer.deinit();
 
             const result = try lexer.parseString();
@@ -364,7 +397,8 @@ test "lexer: parse number with buffered input" {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "123.45e-2";
             var fbs = std.io.fixedBufferStream(input);
-            var lexer = zjson.Lexer(@TypeOf(fbs.reader())).initBuffered(fbs.reader(), allocator);
+            const buffered_input = zjson.BufferedInput(@TypeOf(fbs.reader())).init(fbs.reader());
+            var lexer = zjson.BufferedLexer(@TypeOf(fbs.reader())).init(buffered_input, allocator);
             defer lexer.deinit();
 
             const result = try lexer.parseNumber();
@@ -381,7 +415,8 @@ test "lexer: parse surrogate pair with buffered input" {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"\\uD83D\\uDE00\""; // 😀
             var fbs = std.io.fixedBufferStream(input);
-            var lexer = zjson.Lexer(@TypeOf(fbs.reader())).initBuffered(fbs.reader(), allocator);
+            const buffered_input = zjson.BufferedInput(@TypeOf(fbs.reader())).init(fbs.reader());
+            var lexer = zjson.BufferedLexer(@TypeOf(fbs.reader())).init(buffered_input, allocator);
             defer lexer.deinit();
 
             const result = try lexer.parseString();
@@ -398,7 +433,8 @@ test "lexer: parse empty string (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -413,7 +449,8 @@ test "lexer: parse string with all escapes (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "\"\\\"\\\\,\\/,\\b,\\f,\\n,\\r,\\t\"";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseString();
             defer if (result.allocated) allocator.free(result.data);
@@ -428,7 +465,8 @@ test "lexer: parse large number (slice)" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             const input = "9999999999999999999999999999";
-            var lexer = zjson.Lexer(void).initSlice(input, allocator);
+            const slice_input = zjson.SliceInput.init(input);
+            var lexer = zjson.SliceLexer.init(slice_input, allocator);
 
             const result = try lexer.parseNumber();
             defer allocator.free(result);

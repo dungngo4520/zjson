@@ -62,10 +62,11 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
 
     last_parse_error_info = null;
 
-    const lexer = lexer_mod.Lexer(void).initSlice(input, arena.allocator());
+    const slice_input = lexer_mod.SliceInput.init(input);
+    var lexer = lexer_mod.SliceLexer.init(slice_input, arena.allocator());
 
     var parser = FastParser{
-        .lexer = lexer,
+        .lexer = &lexer,
         .arena = arena.allocator(),
         .options = options,
         .last_error_info = null,
@@ -73,9 +74,8 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
 
     const value = try parser.parseValue();
 
-    // Check for trailing content
     try parser.skipWhitespace();
-    if (try parser.lexer.input.hasMore(parser.lexer.allocator)) {
+    if (parser.lexer.input.hasMore()) {
         return parser.fail(Error.TrailingCharacters);
     }
 
@@ -88,14 +88,14 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
 
 /// Fast parser using arena allocator
 const FastParser = struct {
-    lexer: lexer_mod.Lexer(void),
+    lexer: *lexer_mod.SliceLexer,
     arena: std.mem.Allocator,
     options: ParseOptions,
     last_error_info: ?value_mod.ParseErrorInfo = null,
 
     fn parseValue(self: *FastParser) Error!Value {
         try self.skipWhitespace();
-        const c = (try self.lexer.input.peek(self.lexer.allocator)) orelse return self.fail(Error.UnexpectedEnd);
+        const c = self.lexer.input.peek() orelse return self.fail(Error.UnexpectedEnd);
 
         return switch (c) {
             'n' => self.parseNull(),
@@ -131,92 +131,84 @@ const FastParser = struct {
     fn sliceContext(self: *FastParser) ContextSlice {
         const window: usize = 24;
         const pos = self.lexer.position.byte_offset;
-        const input = switch (self.lexer.input) {
-            .slice => |*s| s.data,
-            else => unreachable, // FastParser only uses slice input
-        };
+        const input = self.lexer.input.data;
         const start = if (pos > window) pos - window else 0;
         const end = @min(input.len, pos + window);
         return ContextSlice{ .slice = input[start..end], .start = start };
     }
 
     inline fn parseNull(self: *FastParser) Error!Value {
-        self.lexer.expectLiteral("null") catch return self.fail(Error.InvalidSyntax);
+        try self.lexer.expectLiteral("null");
         return Value.Null;
     }
 
     inline fn parseBool(self: *FastParser) Error!Value {
-        const c = (try self.lexer.input.peek(self.lexer.allocator)) orelse return self.fail(Error.InvalidSyntax);
+        const c = self.lexer.input.peek() orelse return self.fail(Error.InvalidSyntax);
         if (c == 't') {
-            self.lexer.expectLiteral("true") catch return self.fail(Error.InvalidSyntax);
+            try self.lexer.expectLiteral("true");
             return Value{ .Bool = true };
         } else {
-            self.lexer.expectLiteral("false") catch return self.fail(Error.InvalidSyntax);
+            try self.lexer.expectLiteral("false");
             return Value{ .Bool = false };
         }
     }
 
     fn parseNumber(self: *FastParser) Error!Value {
-        const num_str = self.lexer.parseNumber() catch |err| return self.fail(err);
-        // Numbers from lexer are always allocated, but we want to borrow from input
-        // So we need to find the slice in the original input
-        // For arena allocation, we can just use the allocated string from lexer
+        const num_str = try self.lexer.parseNumber();
         return Value{ .Number = num_str };
     }
 
     fn parseString(self: *FastParser) Error!Value {
-        const str_result = self.lexer.parseString() catch |err| return self.fail(err);
-        // str_result.data is either borrowed (slice input) or allocated (buffered input)
-        // Since FastParser uses arena, we can use it directly if borrowed,
-        // or transfer ownership if allocated
+        const str_result = try self.lexer.parseString();
         return Value{ .String = str_result.data };
     }
 
-    // Helper methods for lexer access
-    inline fn peek(self: *FastParser) !?u8 {
-        return try self.lexer.input.peek(self.lexer.allocator);
+    inline fn peek(self: *FastParser) ?u8 {
+        return self.lexer.input.peek();
     }
 
     inline fn advance(self: *FastParser, count: usize) void {
-        self.lexer.input.advance(&self.lexer.position, count);
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            const c = self.lexer.input.peek() orelse break;
+            self.lexer.input.advance();
+            if (c == '\n') {
+                self.lexer.position.line += 1;
+                self.lexer.position.column = 1;
+            } else {
+                self.lexer.position.column += 1;
+            }
+            self.lexer.position.byte_offset += 1;
+        }
     }
 
     inline fn skipWhitespace(self: *FastParser) !void {
         try self.lexer.skipWhitespace();
-        // Handle comments if enabled
         if (self.options.allow_comments) {
             while (true) {
-                const c = (try self.peek()) orelse break;
+                const c = self.peek() orelse break;
                 if (c == '/') {
-                    const next = blk: {
-                        const old_pos = self.lexer.input.currentPos();
-                        self.advance(1);
-                        const result = try self.peek();
-                        // Reset position
-                        switch (self.lexer.input) {
-                            .slice => |*s| s.pos = old_pos,
-                            .buffered => |*b| b.pos = old_pos,
-                        }
-                        self.lexer.position.byte_offset = old_pos;
-                        break :blk result;
-                    } orelse break;
+                    const old_pos = self.lexer.input.currentPos();
+                    self.advance(1);
+                    const next = self.peek();
+                    self.lexer.input.pos = old_pos;
+                    self.lexer.position.byte_offset = old_pos;
 
-                    if (next == '/') {
-                        // Line comment
+                    if (next == null) break;
+                    if (next.? == '/') {
                         self.advance(2);
-                        while (try self.peek()) |ch| {
+                        while (self.peek()) |ch| {
                             if (ch == '\n') break;
                             self.advance(1);
                         }
                         try self.lexer.skipWhitespace();
-                    } else if (next == '*') {
-                        // Block comment
+                    } else if (next.? == '*') {
                         self.advance(2);
                         while (true) {
-                            const ch = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                            const ch = self.peek() orelse return self.fail(Error.UnexpectedEnd);
                             self.advance(1);
                             if (ch == '*') {
-                                if ((try self.peek()) == '/') {
+                                if (self.peek() == '/') {
                                     self.advance(1);
                                     break;
                                 }
@@ -285,7 +277,7 @@ const FastParser = struct {
             switch (stack.items[idx]) {
                 .array => |*arr| {
                     if (arr.expect_value) {
-                        const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                        const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
 
                         if (c == ']') {
                             if (arr.seen_value and !self.options.allow_trailing_commas) {
@@ -309,7 +301,7 @@ const FastParser = struct {
                         continue;
                     }
 
-                    const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                    const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
                     if (c == ',') {
                         self.advance(1);
                         arr.expect_value = true;
@@ -329,7 +321,7 @@ const FastParser = struct {
                 .object => |*obj| {
                     switch (obj.state) {
                         .expect_key_or_end => {
-                            const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                            const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
 
                             if (c == '}') {
                                 if (obj.awaiting_key_after_comma and !self.options.allow_trailing_commas) {
@@ -356,7 +348,7 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_colon => {
-                            const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+                            const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
                             if (c != ':') return self.fail(Error.InvalidSyntax);
                             self.advance(1);
                             obj.state = .expect_value;
@@ -373,7 +365,7 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_comma_or_end => {
-                            const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+                            const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
                             if (c == ',') {
                                 self.advance(1);
                                 obj.state = .expect_key_or_end;
@@ -400,7 +392,7 @@ const FastParser = struct {
     }
 
     fn pushArrayFrame(self: *FastParser, stack: *FrameStack) Error!void {
-        const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+        const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
         if (c != '[') return self.fail(Error.InvalidSyntax);
         self.advance(1);
         const frame = StackFrame{
@@ -414,7 +406,7 @@ const FastParser = struct {
     }
 
     fn pushObjectFrame(self: *FastParser, stack: *FrameStack) Error!void {
-        const c = (try self.peek()) orelse return self.fail(Error.InvalidSyntax);
+        const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
         if (c != '{') return self.fail(Error.InvalidSyntax);
         self.advance(1);
         const frame = StackFrame{
@@ -429,7 +421,7 @@ const FastParser = struct {
     }
 
     fn beginValue(self: *FastParser, stack: *FrameStack) Error!?Value {
-        const c = (try self.peek()) orelse return self.fail(Error.UnexpectedEnd);
+        const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
 
         return switch (c) {
             '[' => blk: {

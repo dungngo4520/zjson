@@ -34,7 +34,7 @@ pub const Token = struct {
 /// Streaming JSON parser that reads from any reader and emits tokens
 pub fn StreamParser(comptime ReaderType: type) type {
     return struct {
-        lexer: lexer_mod.Lexer(ReaderType),
+        lexer: lexer_mod.BufferedLexer(ReaderType),
         allocator: std.mem.Allocator,
         state_stack: std.ArrayList(State),
         peeked_token: ?Token,
@@ -51,8 +51,9 @@ pub fn StreamParser(comptime ReaderType: type) type {
         };
 
         pub fn init(reader: ReaderType, allocator: std.mem.Allocator) Self {
+            const buffered_input = lexer_mod.BufferedInput(ReaderType).init(reader);
             return .{
-                .lexer = lexer_mod.Lexer(ReaderType).initBuffered(reader, allocator),
+                .lexer = lexer_mod.BufferedLexer(ReaderType).init(buffered_input, allocator),
                 .allocator = allocator,
                 .state_stack = .{},
                 .peeked_token = null,
@@ -63,6 +64,19 @@ pub fn StreamParser(comptime ReaderType: type) type {
         pub fn deinit(self: *Self) void {
             self.lexer.deinit();
             self.state_stack.deinit(self.allocator);
+        }
+
+        inline fn advancePos(self: *Self) void {
+            if (self.lexer.input.peek()) |c| {
+                self.lexer.input.advance();
+                if (c == '\n') {
+                    self.lexer.position.line += 1;
+                    self.lexer.position.column = 1;
+                } else {
+                    self.lexer.position.column += 1;
+                }
+                self.lexer.position.byte_offset += 1;
+            }
         }
 
         /// Get the next token. Returns null when parsing is complete.
@@ -76,7 +90,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
 
             try self.lexer.skipWhitespace();
 
-            if (!(try self.lexer.input.hasMore(self.lexer.allocator))) {
+            if (!(try self.lexer.input.hasMore(self.allocator))) {
                 if (self.state_stack.items.len > 0) {
                     return Error.UnexpectedEnd;
                 }
@@ -84,7 +98,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                 return null;
             }
 
-            const c = (try self.lexer.input.peek(self.lexer.allocator)) orelse {
+            const c = self.lexer.input.peek() orelse {
                 if (self.state_stack.items.len > 0) {
                     return Error.UnexpectedEnd;
                 }
@@ -97,7 +111,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
             return switch (c) {
                 '{' => blk: {
                     try self.state_stack.append(self.allocator, .object_start);
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     break :blk Token{
                         .type = .object_begin,
                         .line = token_line,
@@ -110,7 +124,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                     if (state != .object_start and state != .object_key and state != .object_value) {
                         return Error.InvalidSyntax;
                     }
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     try self.updateStateAfterValue();
                     break :blk Token{
                         .type = .object_end,
@@ -120,7 +134,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                 },
                 '[' => blk: {
                     try self.state_stack.append(self.allocator, .array_start);
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     break :blk Token{
                         .type = .array_begin,
                         .line = token_line,
@@ -133,7 +147,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                     if (state != .array_start and state != .array_value) {
                         return Error.InvalidSyntax;
                     }
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     try self.updateStateAfterValue();
                     break :blk Token{
                         .type = .array_end,
@@ -148,7 +162,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                         return Error.InvalidSyntax;
                     }
                     self.state_stack.items[idx] = .object_value;
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     break :blk try self.next();
                 },
                 ',' => blk: {
@@ -162,7 +176,7 @@ pub fn StreamParser(comptime ReaderType: type) type {
                     } else {
                         return Error.InvalidSyntax;
                     }
-                    self.lexer.input.advance(&self.lexer.position, 1);
+                    self.advancePos();
                     break :blk try self.next();
                 },
                 '"' => blk: {
