@@ -61,22 +61,12 @@ const UUID = struct {
     }
 };
 
-test "detect custom marshal method" {
-    const has_custom = comptime zjson.hasCustomMarshal(Color);
-    try std.testing.expect(has_custom);
-}
-
-test "detect custom unmarshal method" {
-    const has_custom = comptime zjson.hasCustomUnmarshal(Color);
-    try std.testing.expect(has_custom);
-}
-
 test "unmarshal hex colors" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             var single = try zjson.parse("\"#FF5733\"", allocator, .{});
             defer single.deinit();
-            const color = try zjson.unmarshalWithCustom(Color, single.value, allocator);
+            const color = try zjson.unmarshal(Color, single.value, allocator);
             try std.testing.expect(color.r == 0xFF and color.g == 0x57 and color.b == 0x33);
 
             const colors = [_]struct { json: []const u8, r: u8, g: u8, b: u8 }{
@@ -89,7 +79,7 @@ test "unmarshal hex colors" {
             inline for (colors) |test_color| {
                 var value = try zjson.parse(test_color.json, allocator, .{});
                 defer value.deinit();
-                const parsed = try zjson.unmarshalWithCustom(Color, value.value, allocator);
+                const parsed = try zjson.unmarshal(Color, value.value, allocator);
                 try std.testing.expect(parsed.r == test_color.r);
                 try std.testing.expect(parsed.g == test_color.g);
                 try std.testing.expect(parsed.b == test_color.b);
@@ -98,22 +88,12 @@ test "unmarshal hex colors" {
     }.run);
 }
 
-test "type without custom marshal" {
-    const has_custom = comptime zjson.hasCustomMarshal(Point);
-    try std.testing.expect(!has_custom);
-}
-
-test "type without custom unmarshal" {
-    const has_custom = comptime zjson.hasCustomUnmarshal(Point);
-    try std.testing.expect(!has_custom);
-}
-
 test "UUID custom unmarshal" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {
             var value = try zjson.parse("\"123e4567-e89b-12d3-a456-426614174000\"", allocator, .{});
             defer value.deinit();
-            const uuid = try zjson.unmarshalWithCustom(UUID, value.value, allocator);
+            const uuid = try zjson.unmarshal(UUID, value.value, allocator);
             try std.testing.expect(uuid.data[0] == 0xAB);
         }
     }.run);
@@ -124,18 +104,10 @@ test "invalid hex color error handling" {
         fn run(allocator: std.mem.Allocator) !void {
             var value = try zjson.parse("\"INVALID\"", allocator, .{});
             defer value.deinit();
-            const result = zjson.unmarshalWithCustom(Color, value.value, allocator);
+            const result = zjson.unmarshal(Color, value.value, allocator);
             try std.testing.expectError(zjson.Error.InvalidSyntax, result);
         }
     }.run);
-}
-
-test "mixed types with custom and non-custom" {
-    const has_color_custom = comptime zjson.hasCustomMarshal(Color);
-    const has_point_custom = comptime zjson.hasCustomMarshal(Point);
-
-    try std.testing.expect(has_color_custom);
-    try std.testing.expect(!has_point_custom);
 }
 
 test "verify marshal method signature" {
@@ -143,4 +115,15 @@ test "verify marshal method signature" {
     const value = color.marshal();
 
     try std.testing.expect(value == .String);
+}
+
+test "marshal alloc uses custom implementation" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const color = Color{ .r = 1, .g = 2, .b = 3 };
+            const json = try zjson.marshalAlloc(color, allocator, .{});
+            defer allocator.free(json);
+            try std.testing.expectEqualStrings("\"#000000\"", json);
+        }
+    }.run);
 }

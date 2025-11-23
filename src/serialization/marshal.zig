@@ -4,22 +4,10 @@ const escape_mod = @import("../utils/escape.zig");
 
 /// Check if a type has a custom marshal method
 pub fn hasCustomMarshal(comptime T: type) bool {
-    return @hasDecl(T, "marshal");
-}
-
-/// Marshal a value, using custom marshal if available
-pub fn marshalWithCustom(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
-    const T = @TypeOf(value);
-
-    // Check if T has a custom marshal method
-    if (comptime hasCustomMarshal(T)) {
-        // Custom marshal should return a Value
-        const custom_value = value.marshal();
-        return marshalAlloc(custom_value, allocator, options);
-    }
-
-    // Fall back to default marshal
-    return marshalAlloc(value, allocator, options);
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, "marshal"),
+        else => false,
+    };
 }
 
 /// Compile-time JSON serialization with options
@@ -30,12 +18,24 @@ pub fn marshal(comptime value: anytype, comptime options: value_mod.MarshalOptio
 
 /// Runtime JSON serialization with options
 pub fn marshalAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    const T = @TypeOf(value);
+    if (comptime hasCustomMarshal(T)) {
+        const custom_value = value.marshal();
+        return marshalAlloc(custom_value, allocator, options);
+    }
     return _marshalGeneric(value, options, false, allocator);
 }
 
 // Generic marshal handler (works for both compile-time and runtime)
 fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime is_comptime: bool, allocator: if (is_comptime) void else std.mem.Allocator) if (is_comptime) []const u8 else std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
+    if (T == value_mod.Value) {
+        if (is_comptime) {
+            return _marshalValueComptime(value, options);
+        } else {
+            return _marshalValueAlloc(value, allocator, options);
+        }
+    }
     const type_info = @typeInfo(T);
 
     switch (type_info) {
@@ -310,4 +310,60 @@ fn _appendItemAlloc(buffer: *std.array_list.Managed(u8), value: []const u8, opti
     }
 
     try buffer.appendSlice(value);
+}
+
+fn _marshalValueComptime(comptime value: value_mod.Value, comptime options: value_mod.MarshalOptions) []const u8 {
+    return switch (value) {
+        .Null => "null",
+        .Bool => if (value.Bool) "true" else "false",
+        .Number => value.Number,
+        .String => escape_mod.escapeStringComptime(value.String),
+        .Array => _marshalArrayComptime(value.Array, options),
+        .Object => _marshalObjectComptime(value.Object, options),
+    };
+}
+
+fn _marshalObjectComptime(comptime pairs: []const value_mod.Pair, comptime options: value_mod.MarshalOptions) []const u8 {
+    comptime var result: []const u8 = "{";
+    comptime var first = true;
+
+    inline for (pairs) |pair| {
+        const field_json = _marshalValueComptime(pair.value, options);
+        result = result ++ (if (first) "" else ",") ++ _formatFieldHelper(pair.key, field_json, options, true);
+        first = false;
+    }
+
+    return result ++ (if (options.pretty and !first) "\n" else "") ++ "}";
+}
+
+fn _marshalValueAlloc(value: value_mod.Value, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    return switch (value) {
+        .Null => allocator.dupe(u8, "null"),
+        .Bool => allocator.dupe(u8, if (value.Bool) "true" else "false"),
+        .Number => allocator.dupe(u8, value.Number),
+        .String => _escapeStringAlloc(value.String, allocator),
+        .Array => _marshalArrayAlloc(value.Array, allocator, options),
+        .Object => _marshalObjectAlloc(value.Object, allocator, options),
+    };
+}
+
+fn _marshalObjectAlloc(pairs: []const value_mod.Pair, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    var buffer = std.array_list.Managed(u8).init(allocator);
+    errdefer buffer.deinit();
+
+    try buffer.append('{');
+    var first = true;
+
+    for (pairs) |pair| {
+        const value_str = try _marshalValueAlloc(pair.value, allocator, options);
+        defer allocator.free(value_str);
+        try _appendFieldAlloc(&buffer, pair.key, value_str, allocator, options, !first);
+        first = false;
+    }
+
+    if (options.pretty and !first) {
+        try buffer.append('\n');
+    }
+    try buffer.append('}');
+    return buffer.toOwnedSlice();
 }

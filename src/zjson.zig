@@ -56,11 +56,6 @@ pub const unmarshal = unmarshal_mod.unmarshal;
 pub const getFieldAs = unmarshal_mod.getFieldAs;
 pub const arrayAs = unmarshal_mod.arrayAs;
 
-pub const hasCustomMarshal = marshal_mod.hasCustomMarshal;
-pub const hasCustomUnmarshal = unmarshal_mod.hasCustomUnmarshal;
-pub const marshalWithCustom = marshal_mod.marshalWithCustom;
-pub const unmarshalWithCustom = unmarshal_mod.unmarshalWithCustom;
-
 // Streaming parser and writer
 pub const StreamParser = stream_parse_mod.StreamParser;
 pub const streamParser = stream_parse_mod.streamParser;

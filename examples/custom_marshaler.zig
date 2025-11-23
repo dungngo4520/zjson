@@ -36,9 +36,6 @@ pub fn main() !void {
     var parsed = try zjson.parse("\"#FF5733\"", allocator, .{});
     defer parsed.deinit();
 
-    const color = try zjson.unmarshalWithCustom(Color, parsed.value, allocator);
+    const color = try zjson.unmarshal(Color, parsed.value, allocator);
     std.debug.print("rgb=({d},{d},{d})\n", .{ color.r, color.g, color.b });
-
-    std.debug.print("custom marshal? {}\n", .{comptime zjson.hasCustomMarshal(Color)});
-    std.debug.print("custom unmarshal? {}\n", .{comptime zjson.hasCustomUnmarshal(Color)});
 }

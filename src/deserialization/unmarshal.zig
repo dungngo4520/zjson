@@ -7,25 +7,19 @@ pub const Pair = value_mod.Pair;
 
 /// Check if a type has a custom unmarshal method
 pub fn hasCustomUnmarshal(comptime T: type) bool {
-    return @hasDecl(T, "unmarshal");
-}
-
-/// Unmarshal a Value into a target type, using custom unmarshal if available
-pub fn unmarshalWithCustom(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
-    // Check if T has a custom unmarshal method
-    if (comptime hasCustomUnmarshal(T)) {
-        // Custom unmarshal should accept a Value and return T
-        return T.unmarshal(val, allocator);
-    }
-
-    // Fall back to default unmarshal
-    return unmarshal(T, val, allocator);
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, "unmarshal"),
+        else => false,
+    };
 }
 
 /// Unmarshal a Value into a target type (struct, slice, array, or primitive)
 /// For structs: Requires the Value to be an Object. Fields are matched by name.
 /// For slices/arrays: Requires the Value to be an Array.
 pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
+    if (comptime hasCustomUnmarshal(T)) {
+        return T.unmarshal(val, allocator);
+    }
     const type_info = @typeInfo(T);
 
     return switch (type_info) {
