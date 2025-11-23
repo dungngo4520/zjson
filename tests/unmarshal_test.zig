@@ -226,3 +226,132 @@ test "direct array and slice unmarshal" {
         }
     }.run);
 }
+
+test "unmarshal string hashmap managed" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("{\"alpha\":1,\"beta\":2}", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    var map = try zjson.unmarshal(std.StringHashMap(u32), value, arena);
+                    defer {
+                        var it = map.iterator();
+                        while (it.next()) |entry| {
+                            arena.free(@constCast(entry.key_ptr.*));
+                        }
+                        map.deinit();
+                    }
+                    try std.testing.expectEqual(@as(usize, 2), map.count());
+                    try std.testing.expectEqual(@as(u32, 1), map.get("alpha").?);
+                    try std.testing.expectEqual(@as(u32, 2), map.get("beta").?);
+                }
+            }.check);
+        }
+    }.run);
+}
+
+test "unmarshal string hashmap unmanaged" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("{\"first\":\"hello\",\"second\":\"zig\"}", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    var map = try zjson.unmarshal(std.StringHashMapUnmanaged([]const u8), value, arena);
+                    defer {
+                        var it = map.iterator();
+                        while (it.next()) |entry| {
+                            arena.free(@constCast(entry.key_ptr.*));
+                            arena.free(@constCast(entry.value_ptr.*));
+                        }
+                        map.deinit(arena);
+                    }
+                    try std.testing.expectEqual(@as(usize, 2), map.count());
+                    try std.testing.expect(std.mem.eql(u8, map.get("first").?, "hello"));
+                    try std.testing.expect(std.mem.eql(u8, map.get("second").?, "zig"));
+                }
+            }.check);
+        }
+    }.run);
+}
+
+test "unmarshal string hashmap managed complex values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const payload =
+                \\{
+                \\  "alpha": {"min": -1, "max": 5, "details": {"label": "slow", "active": false}},
+                \\  "beta":  {"min":  0, "max": 8, "details": {"label": "fast", "active": true}}
+                \\}
+            ;
+            try test_utils.withParsed(payload, allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    const Stats = struct {
+                        min: i32,
+                        max: i32,
+                        details: struct {
+                            label: []const u8,
+                            active: bool,
+                        },
+                    };
+
+                    var map = try zjson.unmarshal(std.StringHashMap(Stats), value, arena);
+                    defer {
+                        var it = map.iterator();
+                        while (it.next()) |entry| {
+                            arena.free(@constCast(entry.key_ptr.*));
+                            arena.free(@constCast(entry.value_ptr.*.details.label));
+                        }
+                        map.deinit();
+                    }
+
+                    const alpha = map.get("alpha").?;
+                    try std.testing.expectEqual(@as(i32, -1), alpha.min);
+                    try std.testing.expectEqual(@as(i32, 5), alpha.max);
+                    try std.testing.expect(!alpha.details.active);
+                    try std.testing.expect(std.mem.eql(u8, alpha.details.label, "slow"));
+
+                    const beta = map.get("beta").?;
+                    try std.testing.expect(beta.details.active);
+                    try std.testing.expect(std.mem.eql(u8, beta.details.label, "fast"));
+                }
+            }.check);
+        }
+    }.run);
+}
+
+test "unmarshal string hashmap unmanaged complex values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const payload =
+                \\{
+                \\  "one":  {"limits": {"low": -10, "high": 10}, "flag": false},
+                \\  "two":  {"limits": {"low":   0, "high": 20}, "flag": true}
+                \\}
+            ;
+            try test_utils.withParsed(payload, allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    const Entry = struct {
+                        limits: struct { low: i64, high: i64 },
+                        flag: bool,
+                    };
+
+                    var map = try zjson.unmarshal(std.StringHashMapUnmanaged(Entry), value, arena);
+                    defer {
+                        var it = map.iterator();
+                        while (it.next()) |entry| {
+                            arena.free(@constCast(entry.key_ptr.*));
+                        }
+                        map.deinit(arena);
+                    }
+
+                    const first = map.get("one").?;
+                    try std.testing.expectEqual(@as(i64, -10), first.limits.low);
+                    try std.testing.expectEqual(@as(i64, 10), first.limits.high);
+                    try std.testing.expect(!first.flag);
+
+                    const second = map.get("two").?;
+                    try std.testing.expect(second.flag);
+                    try std.testing.expectEqual(@as(i64, 20), second.limits.high);
+                }
+            }.check);
+        }
+    }.run);
+}

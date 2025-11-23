@@ -1,6 +1,7 @@
 const std = @import("std");
 const value_mod = @import("../core/value.zig");
 const escape_mod = @import("../utils/escape.zig");
+const type_traits = @import("../utils/type_traits.zig");
 
 /// Check if a type has a custom marshal method
 pub fn hasCustomMarshal(comptime T: type) bool {
@@ -29,6 +30,13 @@ pub fn marshalAlloc(value: anytype, allocator: std.mem.Allocator, options: value
 // Generic marshal handler (works for both compile-time and runtime)
 fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime is_comptime: bool, allocator: if (is_comptime) void else std.mem.Allocator) if (is_comptime) []const u8 else std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
+    const map_kind = comptime type_traits.detectStringHashMapKind(T);
+    if (map_kind != .none) {
+        if (is_comptime) {
+            @compileError("zjson: std.StringHashMap serialization requires marshalAlloc() at runtime");
+        }
+        return _marshalStringHashMapAlloc(value, allocator, options);
+    }
     if (T == value_mod.Value) {
         if (is_comptime) {
             return _marshalValueComptime(value, options);
@@ -296,6 +304,67 @@ fn _marshalArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: val
         try buffer.append('\n');
     }
     try buffer.append(']');
+    return buffer.toOwnedSlice();
+}
+
+fn _marshalStringHashMapAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    var map = value;
+    const MapType = @TypeOf(map);
+    const ValueType = type_traits.stringHashMapValueType(MapType);
+
+    var buffer = std.array_list.Managed(u8).init(allocator);
+    errdefer buffer.deinit();
+
+    try buffer.append('{');
+    var first = true;
+
+    if (options.sort_keys) {
+        const EntryRef = struct {
+            key: []const u8,
+            value_ptr: *const ValueType,
+        };
+
+        const count = map.count();
+        var entries = try allocator.alloc(EntryRef, count);
+        defer allocator.free(entries);
+
+        var filled: usize = 0;
+        var iterator = map.iterator();
+        while (iterator.next()) |entry| {
+            if (filled == entries.len) break;
+            entries[filled] = .{
+                .key = entry.key_ptr.*,
+                .value_ptr = entry.value_ptr,
+            };
+            filled += 1;
+        }
+
+        std.mem.sort(EntryRef, entries[0..filled], {}, struct {
+            fn lessThan(_: void, a: EntryRef, b: EntryRef) bool {
+                return std.mem.order(u8, a.key, b.key) == .lt;
+            }
+        }.lessThan);
+
+        for (entries[0..filled]) |entry_ref| {
+            const encoded = try _marshalGeneric(entry_ref.value_ptr.*, options, false, allocator);
+            defer allocator.free(encoded);
+            try _appendFieldAlloc(&buffer, entry_ref.key, encoded, allocator, options, !first);
+            first = false;
+        }
+    } else {
+        var iterator = map.iterator();
+        while (iterator.next()) |entry| {
+            const encoded = try _marshalGeneric(entry.value_ptr.*, options, false, allocator);
+            defer allocator.free(encoded);
+            try _appendFieldAlloc(&buffer, entry.key_ptr.*, encoded, allocator, options, !first);
+            first = false;
+        }
+    }
+
+    if (options.pretty and !first) {
+        try buffer.append('\n');
+    }
+    try buffer.append('}');
     return buffer.toOwnedSlice();
 }
 

@@ -1,5 +1,6 @@
 const std = @import("std");
 const value_mod = @import("../core/value.zig");
+const type_traits = @import("../utils/type_traits.zig");
 
 pub const Value = value_mod.Value;
 pub const Error = value_mod.Error;
@@ -19,6 +20,9 @@ pub fn hasCustomUnmarshal(comptime T: type) bool {
 pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
     if (comptime hasCustomUnmarshal(T)) {
         return T.unmarshal(val, allocator);
+    }
+    if (comptime type_traits.isStringHashMapType(T)) {
+        return try _unmarshalStringHashMap(T, val, allocator);
     }
     const type_info = @typeInfo(T);
 
@@ -187,6 +191,90 @@ fn _unmarshalField(comptime T: type, val: Value, allocator: std.mem.Allocator) E
         },
         else => return Error.InvalidSyntax,
     };
+}
+
+fn _unmarshalStringHashMap(comptime MapType: type, val: Value, allocator: std.mem.Allocator) Error!MapType {
+    if (val != .Object) return Error.InvalidSyntax;
+
+    var map = _stringHashMapInit(MapType, allocator);
+    errdefer _stringHashMapDeinit(&map, allocator);
+
+    try _stringHashMapEnsureCapacity(&map, allocator, val.Object.len);
+
+    const ValueType = type_traits.stringHashMapValueType(MapType);
+
+    for (val.Object) |pair| {
+        const key_copy = allocator.dupe(u8, pair.key) catch return Error.OutOfMemory;
+        var key_owned = true;
+        defer if (key_owned) allocator.free(key_copy);
+
+        const decoded = try _unmarshalField(ValueType, pair.value, allocator);
+        try _stringHashMapPut(&map, allocator, key_copy, decoded);
+        key_owned = false;
+    }
+
+    return map;
+}
+
+fn _stringHashMapInit(comptime MapType: type, allocator: std.mem.Allocator) MapType {
+    const kind = comptime type_traits.detectStringHashMapKind(MapType);
+    if (kind == .managed) {
+        return MapType.init(allocator);
+    } else if (kind == .unmanaged) {
+        return MapType{};
+    } else {
+        unreachable;
+    }
+}
+
+fn _stringHashMapDeinit(map: anytype, allocator: std.mem.Allocator) void {
+    const MapType = @TypeOf(map.*);
+    const kind = comptime type_traits.detectStringHashMapKind(MapType);
+    if (kind == .managed) {
+        map.deinit();
+    } else if (kind == .unmanaged) {
+        map.deinit(allocator);
+    } else {
+        unreachable;
+    }
+}
+
+fn _stringHashMapEnsureCapacity(map: anytype, allocator: std.mem.Allocator, needed: usize) Error!void {
+    if (needed == 0) return;
+    const MapType = @TypeOf(map.*);
+    const desired = std.math.cast(u32, needed) orelse return Error.OutOfMemory;
+    const kind = comptime type_traits.detectStringHashMapKind(MapType);
+    if (kind == .managed) {
+        map.ensureTotalCapacity(desired) catch |err| switch (err) {
+            error.OutOfMemory => return Error.OutOfMemory,
+            else => return err,
+        };
+    } else if (kind == .unmanaged) {
+        map.ensureTotalCapacity(allocator, desired) catch |err| switch (err) {
+            error.OutOfMemory => return Error.OutOfMemory,
+            else => return err,
+        };
+    } else {
+        unreachable;
+    }
+}
+
+fn _stringHashMapPut(map: anytype, allocator: std.mem.Allocator, key: []const u8, value: anytype) Error!void {
+    const MapType = @TypeOf(map.*);
+    const kind = comptime type_traits.detectStringHashMapKind(MapType);
+    if (kind == .managed) {
+        map.put(key, value) catch |err| switch (err) {
+            error.OutOfMemory => return Error.OutOfMemory,
+            else => return err,
+        };
+    } else if (kind == .unmanaged) {
+        map.put(allocator, key, value) catch |err| switch (err) {
+            error.OutOfMemory => return Error.OutOfMemory,
+            else => return err,
+        };
+    } else {
+        unreachable;
+    }
 }
 
 /// Helper to safely extract a field from an object and unmarshal it

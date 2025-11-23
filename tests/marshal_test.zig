@@ -95,3 +95,60 @@ test "marshal runtime values" {
         }
     }.run);
 }
+
+test "marshal runtime string hashmap" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var map = std.StringHashMap(u32).init(allocator);
+            defer map.deinit();
+
+            try map.put("bananas", 2);
+            try map.put("apples", 1);
+            try map.put("oranges", 3);
+
+            const json = try zjson.marshalAlloc(map, allocator, .{ .sort_keys = true });
+            defer allocator.free(json);
+            try std.testing.expectEqualSlices(u8, "{\"apples\":1,\"bananas\":2,\"oranges\":3}", json);
+        }
+    }.run);
+}
+
+test "marshal runtime string hashmap unmanaged" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var map = std.StringHashMapUnmanaged(u32){};
+            defer map.deinit(allocator);
+
+            try map.put(allocator, "x", 10);
+            try map.put(allocator, "y", 20);
+
+            const json = try zjson.marshalAlloc(map, allocator, .{ .sort_keys = true });
+            defer allocator.free(json);
+            try std.testing.expectEqualSlices(u8, "{\"x\":10,\"y\":20}", json);
+        }
+    }.run);
+}
+
+test "marshal runtime string hashmap complex values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const Stats = struct {
+                min: i32,
+                max: i32,
+                info: struct { label: []const u8 },
+            };
+
+            var map = std.StringHashMap(Stats).init(allocator);
+            defer map.deinit();
+
+            try map.put("alpha", .{ .min = -5, .max = 10, .info = .{ .label = "slow" } });
+            try map.put("beta", .{ .min = 0, .max = 42, .info = .{ .label = "fast" } });
+
+            const json = try zjson.marshalAlloc(map, allocator, .{ .sort_keys = true });
+            defer allocator.free(json);
+
+            const expected = "{\"alpha\":{\"info\":{\"label\":\"slow\"},\"max\":10,\"min\":-5},\"beta\":{\"info\":{\"label\":\"fast\"},\"max\":42,\"min\":0}}";
+            try std.testing.expectEqualSlices(u8, expected, json);
+        }
+    }.run);
+}
