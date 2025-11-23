@@ -36,6 +36,42 @@ pub fn stringHashMapValueType(comptime MapType: type) type {
     @compileError("zjson: value field not found for map type " ++ @typeName(MapType));
 }
 
+pub const ArrayListKind = enum {
+    none,
+    managed,
+    unmanaged,
+};
+
+pub fn detectArrayListKind(comptime T: type) ArrayListKind {
+    if (@typeInfo(T) != .@"struct") return .none;
+    if (comptime isManagedArrayList(T)) return .managed;
+    if (comptime isUnmanagedArrayList(T)) return .unmanaged;
+    return .none;
+}
+
+pub fn isArrayListType(comptime T: type) bool {
+    return detectArrayListKind(T) != .none;
+}
+
+pub fn arrayListValueType(comptime ListType: type) type {
+    const info = @typeInfo(ListType);
+    if (info != .@"struct") {
+        @compileError("zjson: type " ++ @typeName(ListType) ++ " is not a struct");
+    }
+
+    inline for (info.@"struct".fields) |field| {
+        if (std.mem.eql(u8, field.name, "items")) {
+            const field_info = @typeInfo(field.type);
+            if (field_info != .pointer or field_info.pointer.size != .slice) {
+                @compileError("zjson: items field of " ++ @typeName(ListType) ++ " is not a slice");
+            }
+            return field_info.pointer.child;
+        }
+    }
+
+    @compileError("zjson: items field not found on type " ++ @typeName(ListType));
+}
+
 fn isManagedStringHashMap(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
     if (!hasField(T, "unmanaged")) return false;
@@ -83,4 +119,32 @@ fn getFieldType(comptime T: type, comptime name: []const u8) type {
         }
     }
     @compileError("zjson: field " ++ name ++ " not found on type " ++ @typeName(T));
+}
+
+fn isManagedArrayList(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct") return false;
+    if (!hasField(T, "items") or !hasField(T, "capacity")) return false;
+    if (!hasField(T, "allocator")) return false;
+    return isItemsSlice(T);
+}
+
+fn isUnmanagedArrayList(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct") return false;
+    if (!hasField(T, "items") or !hasField(T, "capacity")) return false;
+    if (hasField(T, "allocator")) return false;
+    return isItemsSlice(T);
+}
+
+fn isItemsSlice(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .@"struct") return false;
+    inline for (info.@"struct".fields) |field| {
+        if (std.mem.eql(u8, field.name, "items")) {
+            const field_info = @typeInfo(field.type);
+            if (field_info == .pointer and field_info.pointer.size == .slice) {
+                return true;
+            }
+        }
+    }
+    return false;
 }

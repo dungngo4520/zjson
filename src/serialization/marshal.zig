@@ -37,6 +37,13 @@ fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime i
         }
         return _marshalStringHashMapAlloc(value, allocator, options);
     }
+    const list_kind = comptime type_traits.detectArrayListKind(T);
+    if (list_kind != .none) {
+        if (is_comptime) {
+            @compileError("zjson: std.ArrayList serialization requires marshalAlloc() at runtime");
+        }
+        return _marshalArrayListAlloc(value, allocator, options);
+    }
     if (T == value_mod.Value) {
         if (is_comptime) {
             return _marshalValueComptime(value, options);
@@ -365,6 +372,27 @@ fn _marshalStringHashMapAlloc(value: anytype, allocator: std.mem.Allocator, opti
         try buffer.append('\n');
     }
     try buffer.append('}');
+    return buffer.toOwnedSlice();
+}
+
+fn _marshalArrayListAlloc(value: anytype, allocator: std.mem.Allocator, options: value_mod.MarshalOptions) std.mem.Allocator.Error![]u8 {
+    var buffer = std.array_list.Managed(u8).init(allocator);
+    errdefer buffer.deinit();
+
+    try buffer.append('[');
+    var first = true;
+
+    for (value.items) |item| {
+        const encoded = try _marshalGeneric(item, options, false, allocator);
+        defer allocator.free(encoded);
+        try _appendItemAlloc(&buffer, encoded, options, !first);
+        first = false;
+    }
+
+    if (options.pretty and !first) {
+        try buffer.append('\n');
+    }
+    try buffer.append(']');
     return buffer.toOwnedSlice();
 }
 

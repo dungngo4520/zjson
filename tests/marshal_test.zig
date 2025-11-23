@@ -152,3 +152,46 @@ test "marshal runtime string hashmap complex values" {
         }
     }.run);
 }
+
+test "marshal runtime arraylist unmanaged simple values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var list = try std.ArrayList(i32).initCapacity(allocator, 3);
+            defer list.deinit(allocator);
+
+            try list.append(allocator, 1);
+            try list.append(allocator, 2);
+            try list.append(allocator, 3);
+
+            const json = try zjson.marshalAlloc(list, allocator, .{});
+            defer allocator.free(json);
+            try std.testing.expectEqualSlices(u8, "[1,2,3]", json);
+        }
+    }.run);
+}
+
+test "marshal runtime arraylist unmanaged complex values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const Entry = struct {
+                name: []const u8,
+                meta: struct {
+                    active: bool,
+                    tag: []const u8,
+                },
+            };
+
+            var list = try std.ArrayList(Entry).initCapacity(allocator, 2);
+            defer list.deinit(allocator);
+
+            try list.append(allocator, Entry{ .name = "alpha", .meta = .{ .active = true, .tag = "primary" } });
+            try list.append(allocator, Entry{ .name = "beta", .meta = .{ .active = false, .tag = "secondary" } });
+
+            const json = try zjson.marshalAlloc(list, allocator, .{});
+            defer allocator.free(json);
+
+            const expected = "[{\"name\":\"alpha\",\"meta\":{\"active\":true,\"tag\":\"primary\"}},{\"name\":\"beta\",\"meta\":{\"active\":false,\"tag\":\"secondary\"}}]";
+            try std.testing.expectEqualSlices(u8, expected, json);
+        }
+    }.run);
+}

@@ -227,6 +227,55 @@ test "direct array and slice unmarshal" {
     }.run);
 }
 
+test "unmarshal arraylist unmanaged simple values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            try test_utils.withParsed("[5,10,15]", allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    var list = try zjson.unmarshal(std.ArrayList(i32), value, arena);
+                    defer list.deinit(arena);
+                    try std.testing.expectEqual(@as(usize, 3), list.items.len);
+                    try std.testing.expectEqual(@as(i32, 5), list.items[0]);
+                    try std.testing.expectEqual(@as(i32, 15), list.items[2]);
+                }
+            }.check);
+        }
+    }.run);
+}
+
+test "unmarshal arraylist unmanaged complex values" {
+    try test_utils.usingAllocator(struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const payload = "[{\"title\":\"alpha\",\"details\":{\"label\":\"fast\",\"good\":true}},{\"title\":\"beta\",\"details\":{\"label\":\"slow\",\"good\":false}}]";
+            try test_utils.withParsed(payload, allocator, .{}, struct {
+                fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
+                    const Entry = struct {
+                        title: []const u8,
+                        details: struct {
+                            label: []const u8,
+                            good: bool,
+                        },
+                    };
+
+                    var list = try zjson.unmarshal(std.ArrayList(Entry), value, arena);
+                    defer {
+                        for (list.items) |entry| {
+                            arena.free(@constCast(entry.title));
+                            arena.free(@constCast(entry.details.label));
+                        }
+                        list.deinit(arena);
+                    }
+
+                    try std.testing.expectEqual(@as(usize, 2), list.items.len);
+                    try std.testing.expect(std.mem.eql(u8, list.items[0].title, "alpha"));
+                    try std.testing.expect(list.items[0].details.good);
+                    try std.testing.expect(std.mem.eql(u8, list.items[1].details.label, "slow"));
+                }
+            }.check);
+        }
+    }.run);
+}
+
 test "unmarshal string hashmap managed" {
     try test_utils.usingAllocator(struct {
         fn run(allocator: std.mem.Allocator) !void {

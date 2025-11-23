@@ -24,6 +24,9 @@ pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Err
     if (comptime type_traits.isStringHashMapType(T)) {
         return try _unmarshalStringHashMap(T, val, allocator);
     }
+    if (comptime type_traits.isArrayListType(T)) {
+        return try _unmarshalArrayList(T, val, allocator);
+    }
     const type_info = @typeInfo(T);
 
     return switch (type_info) {
@@ -214,6 +217,43 @@ fn _unmarshalStringHashMap(comptime MapType: type, val: Value, allocator: std.me
     }
 
     return map;
+}
+
+fn _unmarshalArrayList(comptime ListType: type, val: Value, allocator: std.mem.Allocator) Error!ListType {
+    if (val != .Array) return Error.InvalidSyntax;
+
+    var list = try _arrayListInit(ListType, allocator, val.Array.len);
+    errdefer _arrayListDeinit(ListType, &list, allocator);
+
+    const ValueType = type_traits.arrayListValueType(ListType);
+    for (val.Array) |item| {
+        const decoded = try _unmarshalField(ValueType, item, allocator);
+        try _arrayListAppend(ListType, &list, allocator, decoded);
+    }
+
+    return list;
+}
+
+fn _arrayListInit(comptime ListType: type, allocator: std.mem.Allocator, capacity: usize) Error!ListType {
+    return ListType.initCapacity(allocator, capacity);
+}
+
+fn _arrayListDeinit(comptime ListType: type, list: *ListType, allocator: std.mem.Allocator) void {
+    const kind = comptime type_traits.detectArrayListKind(ListType);
+    switch (kind) {
+        .managed => list.deinit(),
+        .unmanaged => list.deinit(allocator),
+        .none => unreachable,
+    }
+}
+
+fn _arrayListAppend(comptime ListType: type, list: *ListType, allocator: std.mem.Allocator, value: anytype) Error!void {
+    const kind = comptime type_traits.detectArrayListKind(ListType);
+    switch (kind) {
+        .managed => try list.append(value),
+        .unmanaged => try list.append(allocator, value),
+        .none => unreachable,
+    }
 }
 
 fn _stringHashMapInit(comptime MapType: type, allocator: std.mem.Allocator) MapType {
