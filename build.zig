@@ -96,6 +96,7 @@ fn build_tests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
             }
 
             const test_path = b.fmt("tests/{s}", .{entry.path});
+            const test_name = std.fs.path.stem(entry.basename);
 
             const test_module = b.createModule(.{
                 .root_source_file = b.path(test_path),
@@ -107,6 +108,7 @@ fn build_tests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
 
             const unit_tests = b.addTest(.{
                 .root_module = test_module,
+                .name = test_name,
             });
 
             const run_test = b.addRunArtifact(unit_tests);
