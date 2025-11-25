@@ -246,7 +246,7 @@ fn _marshalStructAlloc(value: anytype, allocator: std.mem.Allocator, options: va
     }
 
     if (options.pretty and !first) {
-        try buffer.append('\n');
+        try _appendNewline(&buffer, options);
     }
     try buffer.append('}');
     return buffer.toOwnedSlice();
@@ -262,7 +262,7 @@ fn _appendFieldAlloc(buffer: *std.array_list.Managed(u8), key: []const u8, value
     }
 
     if (options.pretty) {
-        try buffer.append('\n');
+        try _appendNewline(buffer, options);
         try _appendIndentAlloc(buffer, options);
     }
 
@@ -288,8 +288,21 @@ fn _escapeStringAlloc(s: []const u8, allocator: std.mem.Allocator) std.mem.Alloc
 }
 
 fn _appendIndentAlloc(buffer: *std.array_list.Managed(u8), options: value_mod.MarshalOptions) std.mem.Allocator.Error!void {
-    for (0..options.indent) |_| {
-        try buffer.append(' ');
+    if (options.use_tabs) {
+        for (0..options.indent) |_| {
+            try buffer.append('\t');
+        }
+    } else {
+        for (0..options.indent) |_| {
+            try buffer.append(' ');
+        }
+    }
+}
+
+fn _appendNewline(buffer: *std.array_list.Managed(u8), options: value_mod.MarshalOptions) std.mem.Allocator.Error!void {
+    switch (options.line_ending) {
+        .lf => try buffer.append('\n'),
+        .crlf => try buffer.appendSlice("\r\n"),
     }
 }
 
@@ -307,8 +320,8 @@ fn _marshalArrayAlloc(value: anytype, allocator: std.mem.Allocator, options: val
         first = false;
     }
 
-    if (options.pretty and !first) {
-        try buffer.append('\n');
+    if (options.pretty and !options.compact_arrays and !first) {
+        try _appendNewline(&buffer, options);
     }
     try buffer.append(']');
     return buffer.toOwnedSlice();
@@ -369,7 +382,7 @@ fn _marshalStringHashMapAlloc(value: anytype, allocator: std.mem.Allocator, opti
     }
 
     if (options.pretty and !first) {
-        try buffer.append('\n');
+        try _appendNewline(&buffer, options);
     }
     try buffer.append('}');
     return buffer.toOwnedSlice();
@@ -389,8 +402,8 @@ fn _marshalArrayListAlloc(value: anytype, allocator: std.mem.Allocator, options:
         first = false;
     }
 
-    if (options.pretty and !first) {
-        try buffer.append('\n');
+    if (options.pretty and !options.compact_arrays and !first) {
+        try _appendNewline(&buffer, options);
     }
     try buffer.append(']');
     return buffer.toOwnedSlice();
@@ -401,9 +414,11 @@ fn _appendItemAlloc(buffer: *std.array_list.Managed(u8), value: []const u8, opti
         try buffer.append(',');
     }
 
-    if (options.pretty) {
-        try buffer.append('\n');
+    if (options.pretty and !options.compact_arrays) {
+        try _appendNewline(buffer, options);
         try _appendIndentAlloc(buffer, options);
+    } else if (need_comma and options.compact_arrays) {
+        try buffer.append(' ');
     }
 
     try buffer.appendSlice(value);
@@ -459,7 +474,7 @@ fn _marshalObjectAlloc(pairs: []const value_mod.Pair, allocator: std.mem.Allocat
     }
 
     if (options.pretty and !first) {
-        try buffer.append('\n');
+        try _appendNewline(&buffer, options);
     }
     try buffer.append('}');
     return buffer.toOwnedSlice();

@@ -85,6 +85,14 @@ pub const MarshalOptions = struct {
     indent: u32 = 2,
     omit_null: bool = true,
     sort_keys: bool = false,
+    use_tabs: bool = false,
+    compact_arrays: bool = false,
+    line_ending: LineEnding = .lf,
+
+    pub const LineEnding = enum {
+        lf, // \n (Unix/Linux/macOS)
+        crlf, // \r\n (Windows)
+    };
 };
 
 pub const DuplicateKeyPolicy = enum {
