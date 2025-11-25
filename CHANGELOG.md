@@ -1,40 +1,36 @@
 # Changelog
 
-All notable changes documented here. See [Semantic Versioning](https://semver.org).
+## [1.0.0] - 2025-11-26
+
+### Added
+
+- Safety limits: max_depth (128), max_document_size (10MB)
+- Duplicate key policies: keep_last, keep_first, reject
+- Number overflow detection
+- Error hints with line/column info
+- HashMap/ArrayList marshal/unmarshal
+- Marshal options: use_tabs, compact_arrays, line_ending, sort_keys
+- Custom enum serialization via marshal()/unmarshal() methods
+- Streaming parser and writer
+
+### Performance
+
+1.28-2.65x faster than std.json
+
+### Notes
+
+- No breaking changes from v0.1.0
+- 111+ tests passing
 
 ## [0.1.0] - 2025-11-22
 
-### Core Features
+Initial release.
 
 - Arena-based JSON parser
-- Compile-time & runtime marshal (Zig structs → JSON)
-- Unmarshal (JSON → Zig structs) with type inference
-- Streaming parser for large files (token-based)
-- Streaming writer for incremental JSON generation
+- Compile-time and runtime marshaling
+- Unmarshal to typed structs
+- Streaming parse/write
+- Comments and trailing commas support
 
-### API
-
-- `parse()` - Fast arena-backed parsing
-- `marshal()` / `marshalAlloc()` - Serialization with custom hooks
-- `unmarshal()` / `unmarshalWithCustom()` - Deserialization
-- `streamParser()` / `streamWriter()` - Memory-efficient streaming
-- Value helpers: converters, accessors, utilities
-- Error reporting: line/column info + visual indicators
-
-### Options
-
-- Parse: `allow_comments`, `allow_trailing_commas`
-- Marshal: `pretty`, `indent`, `omit_null`, `sort_keys`
-
-### Quality
-
-- JSON Test Suite integration
-
-### Known Limitations
-
-- No JSON Pointer/JSONPath queries
-- No JSON Schema validation
-- No JSON Patch support
-- Numbers stored as strings (intentional, for precision)
-
+[1.0.0]: https://github.com/dungngo4520/zjson/releases/tag/v1.0.0
 [0.1.0]: https://github.com/dungngo4520/zjson/releases/tag/v0.1.0
