@@ -30,6 +30,16 @@ pub fn marshalAlloc(value: anytype, allocator: std.mem.Allocator, options: value
 // Generic marshal handler (works for both compile-time and runtime)
 fn _marshalGeneric(value: anytype, options: value_mod.MarshalOptions, comptime is_comptime: bool, allocator: if (is_comptime) void else std.mem.Allocator) if (is_comptime) []const u8 else std.mem.Allocator.Error![]u8 {
     const T = @TypeOf(value);
+
+    // Check for custom marshal first (for all types including enums)
+    if (comptime hasCustomMarshal(T)) {
+        if (is_comptime) {
+            @compileError("zjson: custom marshal() requires marshalAlloc() at runtime");
+        }
+        const custom_value = value.marshal();
+        return _marshalGeneric(custom_value, options, false, allocator);
+    }
+
     const map_kind = comptime type_traits.detectStringHashMapKind(T);
     if (map_kind != .none) {
         if (is_comptime) {

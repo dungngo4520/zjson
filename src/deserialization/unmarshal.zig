@@ -114,6 +114,11 @@ pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Err
 
 /// Internal helper to unmarshal a single field value
 fn _unmarshalField(comptime T: type, val: Value, allocator: std.mem.Allocator) Error!T {
+    // Check for custom unmarshal first (for all types including enums)
+    if (comptime hasCustomUnmarshal(T)) {
+        return T.unmarshal(val, allocator);
+    }
+
     const type_info = @typeInfo(T);
 
     return switch (type_info) {
