@@ -41,6 +41,22 @@ const age = try zjson.getPointerAs(i64, result.value, "/users/0/age");
 if (zjson.hasPointer(result.value, "/users/1")) { ... }
 ```
 
+### JSONPath Query
+
+```zig
+// Query returns all matches
+const authors = try zjson.jsonpath(allocator, result.value, "$..author");
+defer allocator.free(authors);
+
+// Query with filter
+const cheap = try zjson.jsonpath(allocator, result.value, "$.books[?(@.price < 10)]");
+
+// Get first match or null
+const first = try zjson.jsonpathOne(allocator, result.value, "$.store.name");
+```
+
+Supported: `$` root, `.key` child, `[0]` index, `[-1]` negative, `[0:3]` slice, `[*]` wildcard, `..` recursive, `['a','b']` union, `[?(@.x < 5)]` filter.
+
 ### Marshal
 
 ```zig
