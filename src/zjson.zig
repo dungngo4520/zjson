@@ -7,6 +7,7 @@ const stream_write_mod = @import("serialization/stream_write.zig");
 const lexer_mod = @import("parsing/lexer.zig");
 const escape_mod = @import("utils/escape.zig");
 const error_mod = @import("utils/error.zig");
+const pointer_mod = @import("query/pointer.zig");
 
 // Re-export all public APIs
 pub const Error = value_mod.Error;
@@ -64,3 +65,9 @@ pub const TokenType = stream_parse_mod.TokenType;
 
 pub const StreamWriter = stream_write_mod.StreamWriter;
 pub const streamWriter = stream_write_mod.streamWriter;
+
+// JSON Pointer (RFC 6901)
+pub const getPointer = pointer_mod.getPointer;
+pub const getPointerAs = pointer_mod.getPointerAs;
+pub const hasPointer = pointer_mod.hasPointer;
+pub const PointerError = pointer_mod.PointerError;

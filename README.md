@@ -33,6 +33,14 @@ const Person = struct { name: []const u8, age: i32 };
 const person = try zjson.unmarshal(Person, result.value, allocator);
 ```
 
+### JSON Pointer (RFC 6901)
+
+```zig
+const name = try zjson.getPointer(result.value, "/users/0/name");
+const age = try zjson.getPointerAs(i64, result.value, "/users/0/age");
+if (zjson.hasPointer(result.value, "/users/1")) { ... }
+```
+
 ### Marshal
 
 ```zig
