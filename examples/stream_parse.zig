@@ -14,7 +14,7 @@ pub fn main() !void {
         \\]}
     ;
     var fbs = std.io.fixedBufferStream(json);
-    var parser = zjson.streamParser(fbs.reader(), allocator);
+    var parser = zjson.stream.parser(fbs.reader(), allocator);
     defer parser.deinit();
 
     var in_users_array = false;

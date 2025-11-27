@@ -3,16 +3,7 @@ const Allocator = std.mem.Allocator;
 const value_mod = @import("../core/value.zig");
 
 pub const Value = value_mod.Value;
-
-pub const JsonPathError = error{
-    InvalidPath,
-    UnexpectedToken,
-    UnclosedBracket,
-    InvalidIndex,
-    InvalidSlice,
-    InvalidFilter,
-    OutOfMemory,
-};
+pub const Error = value_mod.Error;
 
 /// JSONPath segment types
 pub const Segment = union(enum) {
@@ -39,8 +30,8 @@ pub const Segment = union(enum) {
 };
 
 /// Parse JSONPath expression into segments
-pub fn parse(allocator: Allocator, path: []const u8) JsonPathError![]Segment {
-    if (path.len == 0) return JsonPathError.InvalidPath;
+pub fn parse(allocator: Allocator, path: []const u8) Error![]Segment {
+    if (path.len == 0) return Error.InvalidPath;
 
     var segments: std.ArrayListUnmanaged(Segment) = .empty;
     errdefer segments.deinit(allocator);
@@ -48,13 +39,13 @@ pub fn parse(allocator: Allocator, path: []const u8) JsonPathError![]Segment {
     var i: usize = 0;
 
     if (path[0] == '$') {
-        segments.append(allocator, .root) catch return JsonPathError.OutOfMemory;
+        segments.append(allocator, .root) catch return Error.OutOfMemory;
         i = 1;
     } else if (path[0] == '@') {
-        segments.append(allocator, .current) catch return JsonPathError.OutOfMemory;
+        segments.append(allocator, .current) catch return Error.OutOfMemory;
         i = 1;
     } else {
-        return JsonPathError.InvalidPath;
+        return Error.InvalidPath;
     }
 
     while (i < path.len) {
@@ -63,53 +54,53 @@ pub fn parse(allocator: Allocator, path: []const u8) JsonPathError![]Segment {
             if (i >= path.len) break;
 
             if (path[i] == '.') {
-                segments.append(allocator, .recursive_descent) catch return JsonPathError.OutOfMemory;
+                segments.append(allocator, .recursive_descent) catch return Error.OutOfMemory;
                 i += 1;
                 // After .., parse the following segment (identifier, *, or [)
                 if (i >= path.len) break;
                 if (path[i] == '*') {
-                    segments.append(allocator, .wildcard) catch return JsonPathError.OutOfMemory;
+                    segments.append(allocator, .wildcard) catch return Error.OutOfMemory;
                     i += 1;
                 } else if (path[i] == '[') {
                     i += 1;
                     const seg = try parseBracket(allocator, path, &i);
-                    segments.append(allocator, seg) catch return JsonPathError.OutOfMemory;
+                    segments.append(allocator, seg) catch return Error.OutOfMemory;
                 } else if (isIdentChar(path[i])) {
                     const start = i;
                     while (i < path.len and isIdentChar(path[i])) : (i += 1) {}
-                    segments.append(allocator, .{ .child = path[start..i] }) catch return JsonPathError.OutOfMemory;
+                    segments.append(allocator, .{ .child = path[start..i] }) catch return Error.OutOfMemory;
                 }
                 continue;
             }
 
             if (path[i] == '*') {
-                segments.append(allocator, .wildcard) catch return JsonPathError.OutOfMemory;
+                segments.append(allocator, .wildcard) catch return Error.OutOfMemory;
                 i += 1;
                 continue;
             }
 
             const start = i;
             while (i < path.len and isIdentChar(path[i])) : (i += 1) {}
-            if (i == start) return JsonPathError.InvalidPath;
-            segments.append(allocator, .{ .child = path[start..i] }) catch return JsonPathError.OutOfMemory;
+            if (i == start) return Error.InvalidPath;
+            segments.append(allocator, .{ .child = path[start..i] }) catch return Error.OutOfMemory;
         } else if (path[i] == '[') {
             i += 1;
             const seg = try parseBracket(allocator, path, &i);
-            segments.append(allocator, seg) catch return JsonPathError.OutOfMemory;
+            segments.append(allocator, seg) catch return Error.OutOfMemory;
         } else {
-            return JsonPathError.UnexpectedToken;
+            return Error.InvalidSyntax;
         }
     }
 
-    return segments.toOwnedSlice(allocator) catch return JsonPathError.OutOfMemory;
+    return segments.toOwnedSlice(allocator) catch return Error.OutOfMemory;
 }
 
-fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError!Segment {
-    if (i.* >= path.len) return JsonPathError.UnclosedBracket;
+fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) Error!Segment {
+    if (i.* >= path.len) return Error.InvalidSyntax;
 
     if (path[i.*] == '?') {
         i.* += 1;
-        if (i.* >= path.len or path[i.*] != '(') return JsonPathError.InvalidFilter;
+        if (i.* >= path.len or path[i.*] != '(') return Error.InvalidSyntax;
         i.* += 1;
         const filter_start = i.*;
         var depth: usize = 1;
@@ -118,16 +109,16 @@ fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError
             if (path[i.*] == ')') depth -= 1;
             i.* += 1;
         }
-        if (depth != 0) return JsonPathError.InvalidFilter;
+        if (depth != 0) return Error.InvalidSyntax;
         const filter_expr = path[filter_start .. i.* - 1];
-        if (i.* >= path.len or path[i.*] != ']') return JsonPathError.UnclosedBracket;
+        if (i.* >= path.len or path[i.*] != ']') return Error.InvalidSyntax;
         i.* += 1;
         return .{ .filter = filter_expr };
     }
 
     if (path[i.*] == '*') {
         i.* += 1;
-        if (i.* >= path.len or path[i.*] != ']') return JsonPathError.UnclosedBracket;
+        if (i.* >= path.len or path[i.*] != ']') return Error.InvalidSyntax;
         i.* += 1;
         return .wildcard;
     }
@@ -137,7 +128,7 @@ fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError
         i.* += 1;
         const key_start = i.*;
         while (i.* < path.len and path[i.*] != quote) : (i.* += 1) {}
-        if (i.* >= path.len) return JsonPathError.UnclosedBracket;
+        if (i.* >= path.len) return Error.InvalidSyntax;
         const key = path[key_start..i.*];
         i.* += 1;
 
@@ -145,7 +136,7 @@ fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError
             return parseUnion(allocator, path, i, key);
         }
 
-        if (i.* >= path.len or path[i.*] != ']') return JsonPathError.UnclosedBracket;
+        if (i.* >= path.len or path[i.*] != ']') return Error.InvalidSyntax;
         i.* += 1;
         return .{ .child = key };
     }
@@ -159,7 +150,7 @@ fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError
         if (path[i.*] == ',') has_comma = true;
         i.* += 1;
     }
-    if (i.* >= path.len) return JsonPathError.UnclosedBracket;
+    if (i.* >= path.len) return Error.InvalidSyntax;
 
     const content = path[num_start..i.*];
     i.* += 1;
@@ -169,12 +160,12 @@ fn parseBracket(allocator: Allocator, path: []const u8, i: *usize) JsonPathError
     } else if (has_comma) {
         return parseIndexUnion(allocator, content);
     } else {
-        const idx = std.fmt.parseInt(isize, content, 10) catch return JsonPathError.InvalidIndex;
+        const idx = std.fmt.parseInt(isize, content, 10) catch return Error.InvalidNumber;
         return .{ .index = idx };
     }
 }
 
-fn parseSlice(content: []const u8) JsonPathError!Segment {
+fn parseSlice(content: []const u8) Error!Segment {
     var slice = Segment.Slice{};
     var part: u8 = 0;
     var num_start: usize = 0;
@@ -187,12 +178,12 @@ fn parseSlice(content: []const u8) JsonPathError!Segment {
         if (at_end or is_colon) {
             const num_str = content[num_start..i];
             if (num_str.len > 0) {
-                const val = std.fmt.parseInt(isize, num_str, 10) catch return JsonPathError.InvalidSlice;
+                const val = std.fmt.parseInt(isize, num_str, 10) catch return Error.InvalidSyntax;
                 switch (part) {
                     0 => slice.start = val,
                     1 => slice.end = val,
                     2 => slice.step = val,
-                    else => return JsonPathError.InvalidSlice,
+                    else => return Error.InvalidSyntax,
                 }
             }
             part += 1;
@@ -204,49 +195,49 @@ fn parseSlice(content: []const u8) JsonPathError!Segment {
     return .{ .slice = slice };
 }
 
-fn parseUnion(allocator: Allocator, path: []const u8, i: *usize, first_key: []const u8) JsonPathError!Segment {
+fn parseUnion(allocator: Allocator, path: []const u8, i: *usize, first_key: []const u8) Error!Segment {
     var items: std.ArrayListUnmanaged(Segment.UnionItem) = .empty;
     errdefer items.deinit(allocator);
 
-    items.append(allocator, .{ .key = first_key }) catch return JsonPathError.OutOfMemory;
+    items.append(allocator, .{ .key = first_key }) catch return Error.OutOfMemory;
 
     while (i.* < path.len and path[i.*] == ',') {
         i.* += 1;
         while (i.* < path.len and path[i.*] == ' ') : (i.* += 1) {}
 
-        if (i.* >= path.len) return JsonPathError.UnclosedBracket;
+        if (i.* >= path.len) return Error.InvalidSyntax;
 
         if (path[i.*] == '\'' or path[i.*] == '"') {
             const quote = path[i.*];
             i.* += 1;
             const key_start = i.*;
             while (i.* < path.len and path[i.*] != quote) : (i.* += 1) {}
-            if (i.* >= path.len) return JsonPathError.UnclosedBracket;
-            items.append(allocator, .{ .key = path[key_start..i.*] }) catch return JsonPathError.OutOfMemory;
+            if (i.* >= path.len) return Error.InvalidSyntax;
+            items.append(allocator, .{ .key = path[key_start..i.*] }) catch return Error.OutOfMemory;
             i.* += 1;
         } else {
-            return JsonPathError.InvalidPath;
+            return Error.InvalidPath;
         }
     }
 
-    if (i.* >= path.len or path[i.*] != ']') return JsonPathError.UnclosedBracket;
+    if (i.* >= path.len or path[i.*] != ']') return Error.InvalidSyntax;
     i.* += 1;
 
-    return .{ .union_ = items.toOwnedSlice(allocator) catch return JsonPathError.OutOfMemory };
+    return .{ .union_ = items.toOwnedSlice(allocator) catch return Error.OutOfMemory };
 }
 
-fn parseIndexUnion(allocator: Allocator, content: []const u8) JsonPathError!Segment {
+fn parseIndexUnion(allocator: Allocator, content: []const u8) Error!Segment {
     var items: std.ArrayListUnmanaged(Segment.UnionItem) = .empty;
     errdefer items.deinit(allocator);
 
     var iter = std.mem.splitScalar(u8, content, ',');
     while (iter.next()) |part| {
         const trimmed = std.mem.trim(u8, part, " ");
-        const idx = std.fmt.parseInt(isize, trimmed, 10) catch return JsonPathError.InvalidIndex;
-        items.append(allocator, .{ .index = idx }) catch return JsonPathError.OutOfMemory;
+        const idx = std.fmt.parseInt(isize, trimmed, 10) catch return Error.InvalidNumber;
+        items.append(allocator, .{ .index = idx }) catch return Error.OutOfMemory;
     }
 
-    return .{ .union_ = items.toOwnedSlice(allocator) catch return JsonPathError.OutOfMemory };
+    return .{ .union_ = items.toOwnedSlice(allocator) catch return Error.OutOfMemory };
 }
 
 fn isIdentChar(c: u8) bool {
@@ -254,7 +245,7 @@ fn isIdentChar(c: u8) bool {
 }
 
 /// Query JSON using JSONPath, returns all matching values
-pub fn query(allocator: Allocator, value: Value, path: []const u8) JsonPathError![]Value {
+pub fn query(allocator: Allocator, value: Value, path: []const u8) Error![]Value {
     const segments = try parse(allocator, path);
     defer freeSegments(allocator, segments);
 
@@ -263,12 +254,12 @@ pub fn query(allocator: Allocator, value: Value, path: []const u8) JsonPathError
 
     try evaluate(allocator, &results, value, segments, 0);
 
-    return results.toOwnedSlice(allocator) catch return JsonPathError.OutOfMemory;
+    return results.toOwnedSlice(allocator) catch return Error.OutOfMemory;
 }
 
-fn evaluate(allocator: Allocator, results: *std.ArrayListUnmanaged(Value), value: Value, segments: []const Segment, idx: usize) JsonPathError!void {
+fn evaluate(allocator: Allocator, results: *std.ArrayListUnmanaged(Value), value: Value, segments: []const Segment, idx: usize) Error!void {
     if (idx >= segments.len) {
-        results.append(allocator, value) catch return JsonPathError.OutOfMemory;
+        results.append(allocator, value) catch return Error.OutOfMemory;
         return;
     }
 
@@ -490,7 +481,7 @@ pub fn freeSegments(allocator: Allocator, segments: []Segment) void {
 }
 
 /// Query and return first match or null
-pub fn queryOne(allocator: Allocator, value: Value, path: []const u8) JsonPathError!?Value {
+pub fn queryOne(allocator: Allocator, value: Value, path: []const u8) Error!?Value {
     const results = try query(allocator, value, path);
     defer allocator.free(results);
     return if (results.len > 0) results[0] else null;

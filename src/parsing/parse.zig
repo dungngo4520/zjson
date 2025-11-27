@@ -1,20 +1,12 @@
 const std = @import("std");
 const value_mod = @import("../core/value.zig");
 const lexer_mod = @import("lexer.zig");
-const error_util = @import("../utils/error.zig");
 
 pub const Error = value_mod.Error;
 pub const Value = value_mod.Value;
 pub const Pair = value_mod.Pair;
 pub const ParseOptions = value_mod.ParseOptions;
 pub const ParseResult = value_mod.ParseResult;
-pub const ParseErrorInfo = value_mod.ParseErrorInfo;
-
-threadlocal var last_parse_error_info: ?value_mod.ParseErrorInfo = null;
-
-pub fn lastParseErrorInfo() ?value_mod.ParseErrorInfo {
-    return last_parse_error_info;
-}
 
 pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: ParseOptions) Error!ParseResult {
     if (input.len > options.max_document_size) {
@@ -24,8 +16,6 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
     var arena = std.heap.ArenaAllocator.init(base_allocator);
     errdefer arena.deinit();
 
-    last_parse_error_info = null;
-
     const slice_input = lexer_mod.SliceInput.init(input);
     var lexer = lexer_mod.SliceLexer.init(slice_input, arena.allocator());
 
@@ -33,20 +23,18 @@ pub fn parse(input: []const u8, base_allocator: std.mem.Allocator, options: Pars
         .lexer = &lexer,
         .arena = arena.allocator(),
         .options = options,
-        .last_error_info = null,
     };
 
     const value = try parser.parseValue();
 
     try parser.skipWhitespace();
     if (parser.lexer.input.hasMore()) {
-        return parser.fail(Error.TrailingCharacters);
+        return Error.TrailingCharacters;
     }
 
     return ParseResult{
         .value = value,
         .arena = arena,
-        .error_info = null,
     };
 }
 
@@ -55,54 +43,20 @@ const FastParser = struct {
     lexer: *lexer_mod.SliceLexer,
     arena: std.mem.Allocator,
     options: ParseOptions,
-    last_error_info: ?value_mod.ParseErrorInfo = null,
 
     fn parseValue(self: *FastParser) Error!Value {
         try self.skipWhitespace();
-        const c = self.lexer.input.peek() orelse return self.fail(Error.UnexpectedEnd);
+        const c = self.lexer.input.peek() orelse return Error.UnexpectedEnd;
 
         return switch (c) {
             'n' => self.parseNull(),
             't', 'f' => self.parseBool(),
             '"' => self.parseString(),
-            '[' => self.parseArray(),
-            '{' => self.parseObject(),
+            '[' => self.parseContainer(.array),
+            '{' => self.parseContainer(.object),
             '-', '0'...'9' => self.parseNumber(),
-            else => self.fail(Error.InvalidSyntax),
+            else => Error.InvalidSyntax,
         };
-    }
-
-    fn fail(self: *FastParser, err: Error) Error {
-        const pos = self.lexer.position;
-        const ctx = self.sliceContext();
-
-        const hint = error_util.getErrorMessage(err);
-
-        const info = value_mod.ParseErrorInfo{
-            .byte_offset = pos.byte_offset,
-            .line = pos.line,
-            .column = pos.column,
-            .context = ctx.slice,
-            .context_offset = ctx.start,
-            .suggested_fix = hint,
-        };
-        self.last_error_info = info;
-        last_parse_error_info = info;
-        return err;
-    }
-
-    const ContextSlice = struct {
-        slice: []const u8,
-        start: usize,
-    };
-
-    fn sliceContext(self: *FastParser) ContextSlice {
-        const window: usize = 24;
-        const pos = self.lexer.position.byte_offset;
-        const input = self.lexer.input.data;
-        const start = if (pos > window) pos - window else 0;
-        const end = @min(input.len, pos + window);
-        return ContextSlice{ .slice = input[start..end], .start = start };
     }
 
     inline fn parseNull(self: *FastParser) Error!Value {
@@ -111,7 +65,7 @@ const FastParser = struct {
     }
 
     inline fn parseBool(self: *FastParser) Error!Value {
-        const c = self.lexer.input.peek() orelse return self.fail(Error.InvalidSyntax);
+        const c = self.lexer.input.peek() orelse return Error.InvalidSyntax;
         if (c == 't') {
             try self.lexer.expectLiteral("true");
             return Value{ .Bool = true };
@@ -173,7 +127,7 @@ const FastParser = struct {
                     } else if (next.? == '*') {
                         self.advance(2);
                         while (true) {
-                            const ch = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+                            const ch = self.peek() orelse return Error.UnexpectedEnd;
                             self.advance(1);
                             if (ch == '*') {
                                 if (self.peek() == '/') {
@@ -191,14 +145,6 @@ const FastParser = struct {
                 }
             }
         }
-    }
-
-    fn parseArray(self: *FastParser) Error!Value {
-        return self.parseContainer(.array);
-    }
-
-    fn parseObject(self: *FastParser) Error!Value {
-        return self.parseContainer(.object);
     }
 
     const ContainerKind = enum { array, object };
@@ -223,6 +169,7 @@ const FastParser = struct {
 
     const ObjectFrame = struct {
         fields: std.ArrayList(Pair),
+        key_set: std.StringHashMapUnmanaged(usize), // Maps key -> index for O(1) duplicate detection
         state: ObjectState,
         pending_key: ?[]const u8,
         awaiting_key_after_comma: bool,
@@ -245,11 +192,11 @@ const FastParser = struct {
             switch (stack.items[idx]) {
                 .array => |*arr| {
                     if (arr.expect_value) {
-                        const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+                        const c = self.peek() orelse return Error.UnexpectedEnd;
 
                         if (c == ']') {
                             if (arr.seen_value and !self.options.allow_trailing_commas) {
-                                return self.fail(Error.InvalidSyntax);
+                                return Error.InvalidSyntax;
                             }
                             self.advance(1);
                             const completion = try self.handleContainerCompletion(
@@ -269,7 +216,7 @@ const FastParser = struct {
                         continue;
                     }
 
-                    const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+                    const c = self.peek() orelse return Error.UnexpectedEnd;
                     if (c == ',') {
                         self.advance(1);
                         arr.expect_value = true;
@@ -283,17 +230,17 @@ const FastParser = struct {
                         if (completion) |result| return result;
                         continue;
                     } else {
-                        return self.fail(Error.InvalidSyntax);
+                        return Error.InvalidSyntax;
                     }
                 },
                 .object => |*obj| {
                     switch (obj.state) {
                         .expect_key_or_end => {
-                            const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+                            const c = self.peek() orelse return Error.UnexpectedEnd;
 
                             if (c == '}') {
                                 if (obj.awaiting_key_after_comma and !self.options.allow_trailing_commas) {
-                                    return self.fail(Error.InvalidSyntax);
+                                    return Error.InvalidSyntax;
                                 }
                                 self.advance(1);
                                 const completion = try self.handleContainerCompletion(
@@ -307,7 +254,7 @@ const FastParser = struct {
                             const key_value = try self.parseString();
                             const key = switch (key_value) {
                                 .String => |s| s,
-                                else => return self.fail(Error.InvalidSyntax),
+                                else => return Error.InvalidSyntax,
                             };
 
                             obj.pending_key = key;
@@ -316,8 +263,8 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_colon => {
-                            const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
-                            if (c != ':') return self.fail(Error.InvalidSyntax);
+                            const c = self.peek() orelse return Error.InvalidSyntax;
+                            if (c != ':') return Error.InvalidSyntax;
                             self.advance(1);
                             obj.state = .expect_value;
                             continue;
@@ -325,20 +272,11 @@ const FastParser = struct {
                         .expect_value => {
                             const scalar = try self.beginValue(&stack);
                             if (scalar) |value| {
-                                const key = obj.pending_key orelse return self.fail(Error.InvalidSyntax);
+                                const key = obj.pending_key orelse return Error.InvalidSyntax;
 
-                                // Handle duplicate keys
-                                var dup_idx: ?usize = null;
-                                for (obj.fields.items, 0..) |pair, j| {
-                                    if (std.mem.eql(u8, pair.key, key)) {
-                                        dup_idx = j;
-                                        break;
-                                    }
-                                }
-
-                                if (dup_idx) |dup_field_idx| {
+                                if (obj.key_set.get(key)) |dup_field_idx| {
                                     switch (self.options.duplicate_key_policy) {
-                                        .reject => return self.fail(Error.DuplicateKey),
+                                        .reject => return Error.DuplicateKey,
                                         .keep_first => {}, // Do nothing, ignore the new value
                                         .keep_last => {
                                             // Replace the old value with the new one
@@ -346,7 +284,9 @@ const FastParser = struct {
                                         },
                                     }
                                 } else {
+                                    const new_idx = obj.fields.items.len;
                                     try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+                                    obj.key_set.put(self.arena, key, new_idx) catch return Error.OutOfMemory;
                                 }
 
                                 obj.pending_key = null;
@@ -355,7 +295,7 @@ const FastParser = struct {
                             continue;
                         },
                         .expect_comma_or_end => {
-                            const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+                            const c = self.peek() orelse return Error.UnexpectedEnd;
                             if (c == ',') {
                                 self.advance(1);
                                 obj.state = .expect_key_or_end;
@@ -370,7 +310,7 @@ const FastParser = struct {
                                 if (completion) |result| return result;
                                 continue;
                             } else {
-                                return self.fail(Error.InvalidSyntax);
+                                return Error.InvalidSyntax;
                             }
                         },
                     }
@@ -383,11 +323,11 @@ const FastParser = struct {
 
     fn pushArrayFrame(self: *FastParser, stack: *FrameStack) Error!void {
         if (stack.items.len >= self.options.max_depth) {
-            return self.fail(Error.MaxDepthExceeded);
+            return Error.MaxDepthExceeded;
         }
 
-        const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
-        if (c != '[') return self.fail(Error.InvalidSyntax);
+        const c = self.peek() orelse return Error.InvalidSyntax;
+        if (c != '[') return Error.InvalidSyntax;
         self.advance(1);
         const frame = StackFrame{
             .array = .{
@@ -401,15 +341,16 @@ const FastParser = struct {
 
     fn pushObjectFrame(self: *FastParser, stack: *FrameStack) Error!void {
         if (stack.items.len >= self.options.max_depth) {
-            return self.fail(Error.MaxDepthExceeded);
+            return Error.MaxDepthExceeded;
         }
 
-        const c = self.peek() orelse return self.fail(Error.InvalidSyntax);
-        if (c != '{') return self.fail(Error.InvalidSyntax);
+        const c = self.peek() orelse return Error.InvalidSyntax;
+        if (c != '{') return Error.InvalidSyntax;
         self.advance(1);
         const frame = StackFrame{
             .object = .{
                 .fields = try std.ArrayList(Pair).initCapacity(self.arena, 32),
+                .key_set = .{},
                 .state = .expect_key_or_end,
                 .pending_key = null,
                 .awaiting_key_after_comma = false,
@@ -419,7 +360,7 @@ const FastParser = struct {
     }
 
     fn beginValue(self: *FastParser, stack: *FrameStack) Error!?Value {
-        const c = self.peek() orelse return self.fail(Error.UnexpectedEnd);
+        const c = self.peek() orelse return Error.UnexpectedEnd;
 
         return switch (c) {
             '[' => blk: {
@@ -434,7 +375,7 @@ const FastParser = struct {
             't', 'f' => try self.parseBool(),
             '"' => try self.parseString(),
             '-', '0'...'9' => try self.parseNumber(),
-            else => self.fail(Error.InvalidSyntax),
+            else => Error.InvalidSyntax,
         };
     }
 
@@ -458,8 +399,10 @@ const FastParser = struct {
                 arr.seen_value = true;
             },
             .object => |*obj| {
-                const key = obj.pending_key orelse return self.fail(Error.InvalidSyntax);
+                const key = obj.pending_key orelse return Error.InvalidSyntax;
+                const new_idx = obj.fields.items.len;
                 try obj.fields.append(self.arena, Pair{ .key = key, .value = value });
+                obj.key_set.put(self.arena, key, new_idx) catch return Error.OutOfMemory;
                 obj.pending_key = null;
                 obj.state = .expect_comma_or_end;
             },

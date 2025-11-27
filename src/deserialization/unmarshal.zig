@@ -53,13 +53,15 @@ pub fn unmarshal(comptime T: type, val: Value, allocator: std.mem.Allocator) Err
                 }
             }
 
-            // Initialize any uninitialized fields to their zero values
+            // Initialize any uninitialized fields
             inline for (fields, 0..) |field, i| {
                 if (!initialized_fields[i]) {
-                    @field(&result, field.name) = @as(field.type, undefined);
-                    // For optional fields, set to null; for others, set to zero
                     if (@typeInfo(field.type) == .optional) {
                         @field(&result, field.name) = null;
+                    } else if (field.defaultValue()) |default| {
+                        @field(&result, field.name) = default;
+                    } else {
+                        return Error.InvalidSyntax;
                     }
                 }
             }

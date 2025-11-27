@@ -4,20 +4,11 @@ const value_mod = @import("../core/value.zig");
 pub const Value = value_mod.Value;
 pub const Error = value_mod.Error;
 
-/// JSON Pointer error types
-pub const PointerError = error{
-    InvalidPointer,
-    InvalidEscape,
-    IndexOutOfBounds,
-    NotAnObject,
-    KeyNotFound,
-};
-
-/// Get a value using JSON Pointer (RFC 6901)
+/// Get a value using JSON Pointer
 /// Example: "/users/0/name" gets root.users[0].name
-pub fn getPointer(value: Value, pointer: []const u8) PointerError!Value {
+pub fn getPointer(value: Value, pointer: []const u8) Error!Value {
     if (pointer.len == 0) return value;
-    if (pointer[0] != '/') return PointerError.InvalidPointer;
+    if (pointer[0] != '/') return Error.InvalidPath;
 
     var current = value;
     var remaining = pointer[1..];
@@ -25,27 +16,26 @@ pub fn getPointer(value: Value, pointer: []const u8) PointerError!Value {
     while (remaining.len > 0) {
         const end = std.mem.indexOfScalar(u8, remaining, '/') orelse remaining.len;
         const token = remaining[0..end];
-        const unescaped = try unescapeToken(token);
 
         current = switch (current) {
             .Object => |obj| blk: {
                 for (obj) |pair| {
-                    if (std.mem.eql(u8, pair.key, unescaped)) {
+                    if (try tokenMatchesKey(token, pair.key)) {
                         break :blk pair.value;
                     }
                 }
-                return PointerError.KeyNotFound;
+                return Error.KeyNotFound;
             },
             .Array => |arr| blk: {
-                if (std.mem.eql(u8, unescaped, "-")) {
-                    return PointerError.IndexOutOfBounds;
+                if (std.mem.eql(u8, token, "-")) {
+                    return Error.IndexOutOfBounds;
                 }
-                const index = std.fmt.parseInt(usize, unescaped, 10) catch
-                    return PointerError.InvalidPointer;
-                if (index >= arr.len) return PointerError.IndexOutOfBounds;
+                const index = std.fmt.parseInt(usize, token, 10) catch
+                    return Error.InvalidPath;
+                if (index >= arr.len) return Error.IndexOutOfBounds;
                 break :blk arr[index];
             },
-            else => return PointerError.NotAnObject,
+            else => return Error.TypeError,
         };
 
         remaining = if (end < remaining.len) remaining[end + 1 ..] else "";
@@ -54,51 +44,38 @@ pub fn getPointer(value: Value, pointer: []const u8) PointerError!Value {
     return current;
 }
 
-/// Unescape JSON Pointer token (~1 -> /, ~0 -> ~)
-fn unescapeToken(token: []const u8) PointerError![]const u8 {
-    if (std.mem.indexOfScalar(u8, token, '~') == null) return token;
+/// Compare escaped token with unescaped key
+/// Token uses JSON Pointer escaping: ~0 = ~, ~1 = /
+fn tokenMatchesKey(token: []const u8, key: []const u8) Error!bool {
+    var ti: usize = 0;
+    var ki: usize = 0;
 
-    const Static = struct {
-        threadlocal var buffer: [256]u8 = undefined;
-    };
-
-    var i: usize = 0;
-    var j: usize = 0;
-
-    while (i < token.len) : (j += 1) {
-        if (j >= Static.buffer.len) return PointerError.InvalidPointer;
-
-        if (token[i] == '~') {
-            if (i + 1 >= token.len) return PointerError.InvalidEscape;
-            Static.buffer[j] = switch (token[i + 1]) {
+    while (ti < token.len and ki < key.len) {
+        if (token[ti] == '~') {
+            if (ti + 1 >= token.len) return Error.InvalidEscape;
+            const unescaped: u8 = switch (token[ti + 1]) {
                 '0' => '~',
                 '1' => '/',
-                else => return PointerError.InvalidEscape,
+                else => return Error.InvalidEscape,
             };
-            i += 2;
+            if (key[ki] != unescaped) return false;
+            ti += 2;
+            ki += 1;
         } else {
-            Static.buffer[j] = token[i];
-            i += 1;
+            if (token[ti] != key[ki]) return false;
+            ti += 1;
+            ki += 1;
         }
     }
 
-    return Static.buffer[0..j];
+    // Both must be fully consumed for a match
+    return ti == token.len and ki == key.len;
 }
 
 /// Get pointer and convert to specific type
-pub fn getPointerAs(comptime T: type, value: Value, pointer: []const u8) (PointerError || Error)!T {
+pub fn getPointerAs(comptime T: type, value: Value, pointer: []const u8) Error!T {
     const target = try getPointer(value, pointer);
-    return switch (T) {
-        []const u8 => value_mod.toString(target),
-        i64 => value_mod.toI64(target),
-        i32 => value_mod.toI32(target),
-        u64 => value_mod.toU64(target),
-        u32 => value_mod.toU32(target),
-        f64 => value_mod.toF64(target),
-        f32 => value_mod.toF32(target),
-        bool => value_mod.toBool(target),
-        else => @compileError("Unsupported type for getPointerAs"),
-    };
+    return value_mod.as(T, target);
 }
 
 /// Check if a pointer path exists

@@ -198,38 +198,6 @@ test "parse errors" {
     }.run);
 }
 
-test "parse error info" {
-    try test_utils.usingAllocator(struct {
-        fn run(allocator: std.mem.Allocator) !void {
-            const bad = "{\n  \"a\": 1,\n  \"b\":\n}";
-            try std.testing.expectError(zjson.Error.InvalidSyntax, zjson.parse(bad, allocator, .{}));
-            const info_opt = zjson.lastParseErrorInfo();
-            try std.testing.expect(info_opt != null);
-            const info = info_opt.?;
-            try std.testing.expectEqual(@as(usize, 4), info.line);
-            try std.testing.expectEqual(@as(usize, 1), info.column);
-            try std.testing.expect(info.context.len > 0);
-        }
-    }.run);
-}
-
-test "write parse error indicator" {
-    var buf = try std.ArrayList(u8).initCapacity(std.testing.allocator, 0);
-    defer buf.deinit(std.testing.allocator);
-
-    const info = zjson.ParseErrorInfo{
-        .byte_offset = 8,
-        .line = 2,
-        .column = 4,
-        .context = "good\nbad value\nrest",
-        .context_offset = 0,
-    };
-
-    const writer = buf.writer(std.testing.allocator);
-    try zjson.writeParseErrorIndicator(info, writer);
-    try std.testing.expectEqualStrings("line 2, column 4\nbad value\n   ^\n", buf.items);
-}
-
 const ValueTag = std.meta.Tag(zjson.Value);
 
 fn expectTag(value: zjson.Value, tag: ValueTag) !void {
@@ -336,19 +304,6 @@ test "duplicate key keep_last policy" {
                     try std.testing.expectEqualStrings("3", pair.value.Number);
                 }
             }
-        }
-    }.run);
-}
-
-test "improved error context with hints" {
-    try test_utils.usingAllocator(struct {
-        fn run(allocator: std.mem.Allocator) !void {
-            // Test error with missing closing bracket
-            const bad_array = "[1, 2, 3";
-            _ = zjson.parse(bad_array, allocator, .{}) catch {};
-            const info1 = zjson.lastParseErrorInfo();
-            try std.testing.expect(info1 != null);
-            try std.testing.expect(info1.?.suggested_fix.len > 0);
         }
     }.run);
 }

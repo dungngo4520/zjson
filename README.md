@@ -22,8 +22,8 @@ exe.root_module.addImport("zjson", b.dependency("zjson", .{}).module("zjson"));
 var result = try zjson.parse(json_string, allocator, .{});
 defer result.deinit();
 
-const name = try zjson.toString((try zjson.getObjectField(result.value, "name")).?);
-const age = try zjson.toI64((try zjson.getObjectField(result.value, "age")).?);
+const name = try zjson.value.as([]const u8, (try zjson.value.getField(result.value, "name")).?);
+const age = try zjson.value.as(i64, (try zjson.value.getField(result.value, "age")).?);
 ```
 
 ### Unmarshal
@@ -36,23 +36,23 @@ const person = try zjson.unmarshal(Person, result.value, allocator);
 ### JSON Pointer (RFC 6901)
 
 ```zig
-const name = try zjson.getPointer(result.value, "/users/0/name");
-const age = try zjson.getPointerAs(i64, result.value, "/users/0/age");
-if (zjson.hasPointer(result.value, "/users/1")) { ... }
+const name = try zjson.pointer.get(result.value, "/users/0/name");
+const age = try zjson.pointer.getAs(i64, result.value, "/users/0/age");
+if (zjson.pointer.has(result.value, "/users/1")) { ... }
 ```
 
 ### JSONPath Query
 
 ```zig
 // Query returns all matches
-const authors = try zjson.jsonpath(allocator, result.value, "$..author");
+const authors = try zjson.path.query(allocator, result.value, "$..author");
 defer allocator.free(authors);
 
 // Query with filter
-const cheap = try zjson.jsonpath(allocator, result.value, "$.books[?(@.price < 10)]");
+const cheap = try zjson.path.query(allocator, result.value, "$.books[?(@.price < 10)]");
 
 // Get first match or null
-const first = try zjson.jsonpathOne(allocator, result.value, "$.store.name");
+const first = try zjson.path.queryOne(allocator, result.value, "$.store.name");
 ```
 
 Supported: `$` root, `.key` child, `[0]` index, `[-1]` negative, `[0:3]` slice, `[*]` wildcard, `..` recursive, `['a','b']` union, `[?(@.x < 5)]` filter.
@@ -68,11 +68,11 @@ defer allocator.free(json);
 
 ```zig
 // Parse
-var parser = zjson.streamParser(allocator, reader, .{});
+var parser = zjson.stream.parser(reader, allocator);
 while (try parser.next()) |token| { ... }
 
 // Write
-var writer = zjson.streamWriter(file.writer(), .{});
+var writer = zjson.stream.writer(file.writer(), allocator, .{});
 try writer.beginObject();
 try writer.objectField("key");
 try writer.write("value");
@@ -83,8 +83,6 @@ try writer.endObject();
 
 ```zig
 // ParseOptions
-.allow_comments = false
-.allow_trailing_commas = false
 .max_depth = 128
 .max_document_size = 10_000_000
 .duplicate_key_policy = .keep_last  // .keep_first, .reject
@@ -110,7 +108,7 @@ const MyType = struct {
     }
 
     pub fn unmarshal(val: zjson.Value, allocator: Allocator) !MyType {
-        return .{ .data = try zjson.toI32(val) };
+        return .{ .data = try zjson.value.as(i32, val) };
     }
 };
 ```

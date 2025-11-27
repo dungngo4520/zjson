@@ -11,7 +11,7 @@ test "jsonpath basic child access" {
     var result = try zjson.parse(json, allocator, .{});
     defer result.deinit();
 
-    const matches = try zjson.jsonpath(allocator, result.value, "$.store.book");
+    const matches = try zjson.path.query(allocator, result.value, "$.store.book");
     defer allocator.free(matches);
 
     try std.testing.expectEqual(@as(usize, 1), matches.len);
@@ -28,7 +28,7 @@ test "jsonpath wildcard" {
     var result = try zjson.parse(json, allocator, .{});
     defer result.deinit();
 
-    const matches = try zjson.jsonpath(allocator, result.value, "$.*");
+    const matches = try zjson.path.query(allocator, result.value, "$.*");
     defer allocator.free(matches);
 
     try std.testing.expectEqual(@as(usize, 3), matches.len);
@@ -45,13 +45,13 @@ test "jsonpath array index" {
     defer result.deinit();
 
     // First element
-    const first = try zjson.jsonpath(allocator, result.value, "$.items[0]");
+    const first = try zjson.path.query(allocator, result.value, "$.items[0]");
     defer allocator.free(first);
     try std.testing.expectEqual(@as(usize, 1), first.len);
     try std.testing.expectEqualStrings("a", first[0].String);
 
     // Last element (negative index)
-    const last = try zjson.jsonpath(allocator, result.value, "$.items[-1]");
+    const last = try zjson.path.query(allocator, result.value, "$.items[-1]");
     defer allocator.free(last);
     try std.testing.expectEqual(@as(usize, 1), last.len);
     try std.testing.expectEqualStrings("c", last[0].String);
@@ -68,17 +68,17 @@ test "jsonpath array slice" {
     defer result.deinit();
 
     // First 3 elements [0:3]
-    const slice1 = try zjson.jsonpath(allocator, result.value, "$[0:3]");
+    const slice1 = try zjson.path.query(allocator, result.value, "$[0:3]");
     defer allocator.free(slice1);
     try std.testing.expectEqual(@as(usize, 3), slice1.len);
 
     // Last 2 elements [-2:]
-    const slice2 = try zjson.jsonpath(allocator, result.value, "$[-2:]");
+    const slice2 = try zjson.path.query(allocator, result.value, "$[-2:]");
     defer allocator.free(slice2);
     try std.testing.expectEqual(@as(usize, 2), slice2.len);
 
     // Every other element [::2]
-    const slice3 = try zjson.jsonpath(allocator, result.value, "$[::2]");
+    const slice3 = try zjson.path.query(allocator, result.value, "$[::2]");
     defer allocator.free(slice3);
     try std.testing.expectEqual(@as(usize, 3), slice3.len);
 }
@@ -102,12 +102,12 @@ test "jsonpath recursive descent" {
     defer result.deinit();
 
     // Find all authors
-    const authors = try zjson.jsonpath(allocator, result.value, "$..author");
+    const authors = try zjson.path.query(allocator, result.value, "$..author");
     defer allocator.free(authors);
     try std.testing.expectEqual(@as(usize, 2), authors.len);
 
     // Find all prices
-    const prices = try zjson.jsonpath(allocator, result.value, "$..price");
+    const prices = try zjson.path.query(allocator, result.value, "$..price");
     defer allocator.free(prices);
     try std.testing.expectEqual(@as(usize, 2), prices.len);
 }
@@ -129,12 +129,12 @@ test "jsonpath filter expression" {
     defer result.deinit();
 
     // Books under $10
-    const cheap = try zjson.jsonpath(allocator, result.value, "$.books[?(@.price < 10)]");
+    const cheap = try zjson.path.query(allocator, result.value, "$.books[?(@.price < 10)]");
     defer allocator.free(cheap);
     try std.testing.expectEqual(@as(usize, 2), cheap.len);
 
     // Books over $10
-    const expensive = try zjson.jsonpath(allocator, result.value, "$.books[?(@.price > 10)]");
+    const expensive = try zjson.path.query(allocator, result.value, "$.books[?(@.price > 10)]");
     defer allocator.free(expensive);
     try std.testing.expectEqual(@as(usize, 1), expensive.len);
 }
@@ -150,7 +150,7 @@ test "jsonpath union" {
     defer result.deinit();
 
     // Multiple keys
-    const matches = try zjson.jsonpath(allocator, result.value, "$['a','c']");
+    const matches = try zjson.path.query(allocator, result.value, "$['a','c']");
     defer allocator.free(matches);
     try std.testing.expectEqual(@as(usize, 2), matches.len);
 }
@@ -165,7 +165,7 @@ test "jsonpath index union" {
     var result = try zjson.parse(json, allocator, .{});
     defer result.deinit();
 
-    const matches = try zjson.jsonpath(allocator, result.value, "$[0,2]");
+    const matches = try zjson.path.query(allocator, result.value, "$[0,2]");
     defer allocator.free(matches);
     try std.testing.expectEqual(@as(usize, 2), matches.len);
     try std.testing.expectEqualStrings("a", matches[0].String);
@@ -182,7 +182,7 @@ test "jsonpath bracket notation" {
     var result = try zjson.parse(json, allocator, .{});
     defer result.deinit();
 
-    const matches = try zjson.jsonpath(allocator, result.value, "$['user']['name']");
+    const matches = try zjson.path.query(allocator, result.value, "$['user']['name']");
     defer allocator.free(matches);
     try std.testing.expectEqual(@as(usize, 1), matches.len);
     try std.testing.expectEqualStrings("test", matches[0].String);
@@ -198,11 +198,11 @@ test "jsonpath queryOne" {
     var result = try zjson.parse(json, allocator, .{});
     defer result.deinit();
 
-    const match = try zjson.jsonpathOne(allocator, result.value, "$.name");
+    const match = try zjson.path.queryOne(allocator, result.value, "$.name");
     try std.testing.expect(match != null);
     try std.testing.expectEqualStrings("Alice", match.?.String);
 
-    const no_match = try zjson.jsonpathOne(allocator, result.value, "$.missing");
+    const no_match = try zjson.path.queryOne(allocator, result.value, "$.missing");
     try std.testing.expect(no_match == null);
 }
 
@@ -223,7 +223,7 @@ test "jsonpath filter existence check" {
     defer result.deinit();
 
     // Books with isbn field
-    const with_isbn = try zjson.jsonpath(allocator, result.value, "$.books[?(@.isbn)]");
+    const with_isbn = try zjson.path.query(allocator, result.value, "$.books[?(@.isbn)]");
     defer allocator.free(with_isbn);
     try std.testing.expectEqual(@as(usize, 2), with_isbn.len);
 }

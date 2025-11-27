@@ -172,9 +172,9 @@ test "unmarshal helpers" {
         fn run(allocator: std.mem.Allocator) !void {
             try test_utils.withParsed("{\"name\":\"Dave\",\"count\":42}", allocator, .{}, struct {
                 fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
-                    const name = try zjson.getFieldAs([]const u8, value, "name", arena);
+                    const name = try zjson.value.getFieldAs([]const u8, value, "name", arena);
                     defer if (name) |n| arena.free(n);
-                    const count = try zjson.getFieldAs(i32, value, "count", arena);
+                    const count = try zjson.value.getFieldAs(i32, value, "count", arena);
                     try std.testing.expect(name != null and count != null);
                     try std.testing.expect(std.mem.eql(u8, name.?, "Dave"));
                     try std.testing.expect(count.? == 42);
@@ -183,7 +183,7 @@ test "unmarshal helpers" {
 
             try test_utils.withParsed("[10,20,30,40,50]", allocator, .{}, struct {
                 fn check(value: zjson.Value, arena: std.mem.Allocator) !void {
-                    const numbers = try zjson.arrayAs(i32, value, arena);
+                    const numbers = try zjson.value.arrayAs(i32, value, arena);
                     defer arena.free(numbers);
                     try std.testing.expectEqual(@as(usize, 5), numbers.len);
                     try std.testing.expectEqual(@as(i32, 30), numbers[2]);

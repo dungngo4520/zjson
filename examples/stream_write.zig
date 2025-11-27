@@ -9,7 +9,7 @@ pub fn main() !void {
     var buffer = std.ArrayList(u8){};
     defer buffer.deinit(allocator);
 
-    var writer = zjson.streamWriter(buffer.writer(allocator), allocator, .{ .pretty = false });
+    var writer = zjson.stream.writer(buffer.writer(allocator), allocator, .{ .pretty = false });
     defer writer.deinit();
 
     try writer.beginObject();
